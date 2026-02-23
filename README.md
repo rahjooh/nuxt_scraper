@@ -1,4 +1,4 @@
-# NuxtFlow
+# Nuxt Scraper
 
 Extract `__NUXT_DATA__` from Nuxt.js applications using [Playwright](https://playwright.dev/python/). Navigate to a URL, optionally run steps (click, fill, wait, scroll, etc.), then get the page's Nuxt data as JSON.
 
@@ -6,7 +6,7 @@ Extract `__NUXT_DATA__` from Nuxt.js applications using [Playwright](https://pla
 
 ### From PyPI (when published):
 ```bash
-pip install nuxtflow
+pip install nuxt_scraper
 playwright install chromium
 ```
 
@@ -29,7 +29,7 @@ playwright install chromium
 **Simple extraction (no steps):**
 
 ```python
-from nuxtflow import extract_nuxt_data
+from nuxt_scraper import extract_nuxt_data
 
 data = extract_nuxt_data("https://your-nuxt-app.com")
 print(data)  # dict (or list) from __NUXT_DATA__
@@ -39,7 +39,7 @@ print(data)  # dict (or list) from __NUXT_DATA__
 
 ```python
 import asyncio
-from nuxtflow import NuxtDataExtractor, NavigationStep
+from nuxt_scraper import NuxtDataExtractor, NavigationStep
 
 async def main():
     steps = [
@@ -77,10 +77,10 @@ Main class for controlled extraction and reuse of a browser session.
 - **timeout** – Default timeout in ms (default `30000`).
 - **browser_type** – `"chromium"`, `"firefox"`, or `"webkit"` (default `"chromium"`).
 - **ignore_https_errors** – Ignore HTTPS certificate errors (default `False`).
-- **viewport_width** / **viewport_height** – Viewport size in pixels. Overridden if `stealth_config.randomize_viewport` is `True`.
-- **user_agent** – Optional custom user agent. Overridden if `stealth_config.realistic_user_agent` is `True`.
+- **viewport_width** / **viewport_height** – Viewport width (px). Ignored when randomize_viewport.
+- **user_agent** – Custom user agent. Ignored when realistic_user_agent.
 - **stealth_config** – `StealthConfig` object for anti-detection settings. Defaults to `StealthConfig()`.
-- **proxy** – Dictionary for proxy settings (`{"server": "http://ip:port", ...}`).
+- **proxy** – Dictionary for proxy settings (`{"server": "http://ip:port"}`).
 
 **Methods:**
 
@@ -108,6 +108,7 @@ Steps are executed in order before extraction.
 | `NavigationStep.wait(selector, timeout=10000, ...)` | Wait for selector to be visible |
 | `NavigationStep.scroll(selector, ...)` | Scroll element into view |
 | `NavigationStep.hover(selector, ...)` | Hover over element |
+| `NavigationStep.select_date(target_date, calendar_selector, ...)` | Select date from calendar pop-up |
 
 All accept optional **wait_after_selector** to wait for another element after the action.
 
@@ -116,7 +117,7 @@ All accept optional **wait_after_selector** to wait for another element after th
 Dataclass for configuring anti-detection behaviors. Use `StealthConfig()` for defaults or customize:
 
 ```python
-from nuxtflow.utils import StealthConfig
+from nuxt_scraper.utils import StealthConfig
 
 paranoid_config = StealthConfig(
     random_delays=True,
@@ -137,17 +138,18 @@ paranoid_config = StealthConfig(
 
 ### Exceptions
 
-- **NuxtFlowException** – Base for all NuxtFlow errors.
+- **NuxtFlowException** – Base for all Nuxt Scraper errors.
 - **NuxtDataNotFound** – `__NUXT_DATA__` element missing or empty.
 - **NavigationStepFailed** – A navigation step failed (includes step and original error).
 - **ExtractionTimeout** – Timeout waiting for Nuxt data.
 - **DataParsingError** – Content is not valid JSON (includes `raw_content`).
 - **BrowserError** – Playwright/browser error.
 - **ProxyError** – Issue with proxy configuration or connection.
+- **DateNotFoundInCalendarError** – Target date not found in calendar pop-up.
 
 ## Anti-Detection Strategies
 
-NuxtFlow incorporates several measures to make automation less detectable:
+Nuxt Scraper incorporates several measures to make automation less detectable:
 
 -   **Human-like Delays**: Random pauses between actions and during typing.
 -   **Realistic Mouse Movements**: Simulated curved mouse paths before clicks.
@@ -160,21 +162,21 @@ These features are controlled via the `StealthConfig` object, allowing you to fi
 
 ## WAF & Advanced Detection Considerations
 
-While NuxtFlow provides robust browser-level anti-detection, certain advanced measures like AWS WAF, sophisticated IP reputation systems, and CAPTCHAs require additional considerations:
+While Nuxt Scraper provides robust browser-level anti-detection, certain advanced measures like AWS WAF, sophisticated IP reputation systems, and CAPTCHAs require additional considerations:
 
--   **TLS-based Rules**: Playwright uses real browser engines, so its TLS fingerprint is generally good. However, highly advanced WAFs might analyze the full TLS handshake for bot patterns. For such cases, consider using *external proxy services* that specialize in TLS fingerprinting obfuscation. NuxtFlow's proxy support allows integration with these services.
+-   **TLS-based Rules**: Playwright uses real browser engines, so its TLS fingerprint is generally good. However, highly advanced WAFs might analyze the full TLS handshake for bot patterns. For such cases, consider using *external proxy services* that specialize in TLS fingerprinting obfuscation. Nuxt Scraper's proxy support allows integration with these services.
 
 -   **IP Reputation**: Repeated requests from a single IP address will quickly flag you. For effective evasion:
-    -   **Proxy Rotation**: Utilize a pool of high-quality, frequently rotating residential or mobile proxies. NuxtFlow allows you to configure a proxy for each extractor instance.
+    -   **Proxy Rotation**: Utilize a pool of high-quality, frequently rotating residential or mobile proxies. Nuxt Scraper allows you to configure a proxy for each extractor instance.
     -   **Proxy Provider**: Choose reputable proxy providers (e.g., Bright Data, Oxylabs, Smartproxy) that manage IP rotation and quality.
 
--   **CAPTCHA**: NuxtFlow does not automatically solve CAPTCHAs, as this is a complex and evolving challenge. If you encounter CAPTCHAs:
+-   **CAPTCHA**: Nuxt Scraper does not automatically solve CAPTCHAs, as this is a complex and evolving challenge. If you encounter CAPTCHAs:
     -   **Manual Intervention**: For low-volume tasks, you might configure the extractor to pause and wait for manual CAPTCHA solving.
     -   **Third-Party CAPTCHA Solving Services**: Integrate with services like 2Captcha, Anti-Captcha, or CapMonster. Your script can detect the CAPTCHA, send it to the service, and then input the solved token.
 
--   **Behavioral CAPTCHAs**: These monitor mouse movements, typing speed, and other interactions. NuxtFlow's human-like behaviors (mouse movement, typing, delays) significantly improve your chances against these, but are not foolproof.
+-   **Behavioral CAPTCHAs**: These monitor mouse movements, typing speed, and other interactions. Nuxt Scraper's human-like behaviors (mouse movement, typing, delays) significantly improve your chances against these, but are not foolproof.
 
-Effective evasion against advanced WAFs often requires a layered approach combining NuxtFlow's browser stealth with high-quality external proxy infrastructure and, if necessary, CAPTCHA solving services.
+Effective evasion against advanced WAFs often requires a layered approach combining Nuxt Scraper's browser stealth with high-quality external proxy infrastructure and, if necessary, CAPTCHA solving services.
 
 ## Examples
 
@@ -182,13 +184,47 @@ Effective evasion against advanced WAFs often requires a layered approach combin
 -   **examples/advanced_navigation.py** – Multiple steps: tabs, fill, scroll, select.
 -   **examples/async_parallel.py** – Sequential and parallel extraction from multiple URLs.
 
+### New Example: Selecting a Date from a Calendar Pop-up
+
+```python
+import asyncio
+from nuxt_scraper import NuxtDataExtractor, NavigationStep
+
+async def select_date_example():
+    # First, click the input that opens the calendar
+    open_calendar_step = NavigationStep.click("input#date-picker-input")
+
+    # Then, define the date selection step
+    select_specific_date = NavigationStep.select_date(
+        target_date="2026-03-15", # March 15, 2026
+        calendar_selector="div.calendar-popup",
+        prev_month_selector="button.prev-month",
+        next_month_selector="button.next-month",
+        month_year_display_selector="div.month-year-display", # e.g. "Feb 2026"
+        date_cell_selector="div.day-cell",
+        view_results_selector="button:has-text('View Results')",
+        timeout=20000,
+    )
+
+    async with NuxtDataExtractor(headless=False, stealth_config=StealthConfig()) as extractor:
+        data = await extractor.extract(
+            "https://your-site-with-calendar.com",
+            steps=[open_calendar_step, select_specific_date]
+        )
+    print("Data after date selection:", data)
+
+if __name__ == "__main__":
+    # asyncio.run(select_date_example())
+    pass
+```
+
 ## Development
 
 ```bash
 pip install -e ".[dev]"
 pytest
-black nuxtflow tests
-ruff check nuxtflow tests
+black nuxt_scraper tests
+ruff check nuxt_scraper tests
 ```
 
 ## Contributing
@@ -215,8 +251,8 @@ playwright install chromium
 pytest
 
 # Run linting
-black nuxtflow tests examples
-ruff check nuxtflow tests examples
+black nuxt_scraper tests examples
+ruff check nuxt_scraper tests examples
 
 # Build package
 python -m build

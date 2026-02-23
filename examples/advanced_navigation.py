@@ -7,7 +7,8 @@ Run with: python -m examples.advanced_navigation
 from __future__ import annotations
 
 import asyncio
-from nuxtflow import NuxtDataExtractor, NavigationStep
+from nuxt_scraper import NuxtDataExtractor, NavigationStep
+from nuxt_scraper.utils import StealthConfig
 
 
 async def extract_after_clicking_tab() -> None:
@@ -68,6 +69,32 @@ async def extract_with_select_dropdown() -> None:
     return data
 
 
+async def select_date_example() -> None:
+    """Demonstrates selecting a date from a calendar pop-up."""
+    # First, click the input that opens the calendar
+    open_calendar_step = NavigationStep.click("input#date-picker-input")
+
+    # Then, define the date selection step
+    select_specific_date = NavigationStep.select_date(
+        target_date="2026-03-15",  # March 15, 2026
+        calendar_selector="div.calendar-popup",
+        prev_month_selector="button.prev-month",
+        next_month_selector="button.next-month",
+        month_year_display_selector="div.month-year-display",  # e.g. "Feb 2026"
+        date_cell_selector="div.day-cell",
+        view_results_selector="button:has-text('View Results')",
+        timeout=20000,
+    )
+
+    async with NuxtDataExtractor(headless=False, stealth_config=StealthConfig()) as extractor:
+        data = await extractor.extract(
+            "https://your-site-with-calendar.com",
+            steps=[open_calendar_step, select_specific_date],
+        )
+    print("Data after date selection:", data)
+
+
 if __name__ == "__main__":
     print("Advanced navigation examples (replace URLs to run)")
     # asyncio.run(extract_after_clicking_tab())
+    # asyncio.run(select_date_example())
