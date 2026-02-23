@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-02-23
+
+### Changed
+
+-   Revamped `README.md` to provide a more robust and comprehensive "Usage" guide.
+-   Restructured "Usage" section with detailed subsections for `extract_nuxt_data`, `NuxtDataExtractor`, `NavigationStep` (with individual examples for each factory method), and `StealthConfig`.
+-   Moved calendar date selection example into the main "Navigation Steps" section.
+-   Updated `pyproject.toml` and `nuxt_scraper/__init__.py` to version `0.2.3`.
+
 ## [0.2.2] - 2026-02-23
 
 ### Added

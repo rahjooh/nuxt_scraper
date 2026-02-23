@@ -24,128 +24,262 @@ pip install -e ".[dev]"
 playwright install chromium
 ```
 
-## Quick start
+## Usage
 
-**Simple extraction (no steps):**
+Nuxt Scraper provides flexible ways to extract data, from simple one-liners to complex, multi-step navigation with advanced anti-detection. Below are examples covering common scenarios.
+
+### Basic Extraction
+
+For straightforward cases where you just need to navigate to a URL and extract the `__NUXT_DATA__` without complex interactions, use the `extract_nuxt_data` convenience function.
 
 ```python
+import asyncio
 from nuxt_scraper import extract_nuxt_data
+from nuxt_scraper.utils import StealthConfig
 
-data = extract_nuxt_data("https://your-nuxt-app.com")
-print(data)  # dict (or list) from __NUXT_DATA__
+async def basic_extraction_example():
+    # Simple extraction
+    data = await extract_nuxt_data("https://your-nuxt-app.com")
+    print("Simple Extraction Data:", data)
+
+    # Extraction with anti-detection and proxy
+    stealth_config = StealthConfig(random_delays=True, human_typing=True)
+    proxy_config = {"server": "http://user:password@proxy.example.com:8080"}
+
+    data_with_stealth_proxy = await extract_nuxt_data(
+        "https://your-advanced-nuxt-app.com",
+        stealth_config=stealth_config,
+        proxy=proxy_config
+    )
+    print("Stealthy Extraction Data:", data_with_stealth_proxy)
+
+if __name__ == "__main__":
+    asyncio.run(basic_extraction_example())
 ```
 
-**With navigation steps (click tab, wait, then extract):**
+### Advanced Extraction with `NuxtDataExtractor`
+
+For more control over the browser session, including persistent sessions, custom browser arguments, and advanced debugging, use the `NuxtDataExtractor` class as an asynchronous context manager.
 
 ```python
 import asyncio
 from nuxt_scraper import NuxtDataExtractor, NavigationStep
+from nuxt_scraper.utils import StealthConfig
 
-async def main():
-    steps = [
-        NavigationStep.click("button[data-tab='products']"),
-        NavigationStep.wait("div.products-loaded", timeout=10000),
-    ]
-    async with NuxtDataExtractor(headless=True, timeout=30000) as extractor:
-        data = await extractor.extract("https://shop.example.com", steps=steps)
-    return data
+async def advanced_extraction_example():
+    custom_stealth = StealthConfig(
+        random_delays=True, min_action_delay_ms=200, max_action_delay_ms=2000,
+        human_typing=True, typing_speed_wpm=60,
+        mouse_movement=True, randomize_viewport=True,
+    )
+    custom_proxy = {"server": "http://proxy.example.com:8080"}
 
-data = asyncio.run(main())
+    async with NuxtDataExtractor(
+        headless=False, # Run browser in headful mode for debugging
+        timeout=60000, # Longer timeout for complex pages
+        browser_type="chromium",
+        ignore_https_errors=True,
+        stealth_config=custom_stealth,
+        proxy=custom_proxy,
+    ) as extractor:
+        steps = [
+            NavigationStep.click("button[data-accept-cookies]"),
+            NavigationStep.wait(".main-content-loaded", timeout=10000),
+        ]
+        data = await extractor.extract(
+            "https://your-complex-site.com",
+            steps=steps,
+            wait_for_nuxt=True,
+            wait_for_nuxt_timeout=20000,
+        )
+    print("Advanced Extraction Data:", data)
+
+if __name__ == "__main__":
+    asyncio.run(advanced_extraction_example())
 ```
 
-## API
+### Navigation Steps
 
-### `extract_nuxt_data(url, ...)`
-
-Convenience function: creates an extractor, opens the URL, and returns the parsed `__NUXT_DATA__`.
-
-- **url** – Target page URL.
-- **steps** – Optional list of `NavigationStep` instances.
-- **headless** – Run browser headless (default `True`).
-- **timeout** – Timeout in milliseconds (default `30000`).
-- **wait_for_nuxt** – Wait for `#__NUXT_DATA__` to be present (default `True`).
-- **stealth_config** – `StealthConfig` object for anti-detection settings.
-- **proxy** – Dictionary for proxy settings (`{"server": "http://ip:port", ...}`).
-
-### `NuxtDataExtractor`
-
-Main class for controlled extraction and reuse of a browser session.
-
-**Constructor:**
-
-- **headless** – Run browser headless (default `True`).
-- **timeout** – Default timeout in ms (default `30000`).
-- **browser_type** – `"chromium"`, `"firefox"`, or `"webkit"` (default `"chromium"`).
-- **ignore_https_errors** – Ignore HTTPS certificate errors (default `False`).
-- **viewport_width** / **viewport_height** – Viewport width (px). Ignored when randomize_viewport.
-- **user_agent** – Custom user agent. Ignored when realistic_user_agent.
-- **stealth_config** – `StealthConfig` object for anti-detection settings. Defaults to `StealthConfig()`.
-- **proxy** – Dictionary for proxy settings (`{"server": "http://ip:port"}`).
-
-**Methods:**
-
-- **`extract(url, steps=None, wait_for_nuxt=True, wait_for_nuxt_timeout=None)`**  
-  Async: navigate to `url`, run `steps` (if any), then extract and return parsed Nuxt data.
-- **`extract_sync(url, steps=None, ...)`**  
-  Sync wrapper that runs `extract()` in an event loop.
-
-Use as an async context manager to manage browser lifecycle:
+`NavigationStep` objects define interactions with the web page before data extraction. They are chained in a list and executed sequentially. Each step can have an optional `wait_after_selector` to pause execution until a specific element appears after the step's action.
 
 ```python
-async with NuxtDataExtractor() as extractor:
-    data = await extractor.extract(url, steps=steps)
+from nuxt_scraper import NavigationStep
 ```
 
-### `NavigationStep`
+#### `NavigationStep.click(selector, timeout=5000, wait_after_selector=None)`
 
-Steps are executed in order before extraction.
+Clicks an element matching the given CSS `selector`.
 
-| Factory method | Description |
-|----------------|-------------|
-| `NavigationStep.click(selector, timeout=5000, wait_after_selector=None)` | Click an element |
-| `NavigationStep.fill(selector, value, ...)` | Fill input/textarea |
-| `NavigationStep.select(selector, value, ...)` | Select dropdown option |
-| `NavigationStep.wait(selector, timeout=10000, ...)` | Wait for selector to be visible |
-| `NavigationStep.scroll(selector, ...)` | Scroll element into view |
-| `NavigationStep.hover(selector, ...)` | Hover over element |
-| `NavigationStep.select_date(target_date, calendar_selector, ...)` | Select date from calendar pop-up |
+```python
+click_button = NavigationStep.click("button#submit-form", wait_after_selector=".form-submitted-message")
+```
 
-All accept optional **wait_after_selector** to wait for another element after the action.
+#### `NavigationStep.fill(selector, value, timeout=5000, wait_after_selector=None)`
 
-### `StealthConfig`
+Fills an input or textarea field with the specified `value`.
 
-Dataclass for configuring anti-detection behaviors. Use `StealthConfig()` for defaults or customize:
+```python
+fill_input = NavigationStep.fill("input[name='username']", "myusername", wait_after_selector="#username-validation-ok")
+```
+
+#### `NavigationStep.select(selector, value, timeout=5000, wait_after_selector=None)`
+
+Selects an option in a dropdown (`<select>`) element by its `value`.
+
+```python
+select_dropdown = NavigationStep.select("select#country", "US", wait_after_selector="#state-dropdown-loaded")
+```
+
+#### `NavigationStep.wait(selector, timeout=10000, wait_after_selector=None)`
+
+Waits for an element matching the `selector` to become visible on the page. Useful for ensuring dynamic content has loaded.
+
+```python
+wait_for_element = NavigationStep.wait("div.loading-spinner-hidden", timeout=15000)
+```
+
+#### `NavigationStep.scroll(selector, timeout=5000, wait_after_selector=None)`
+
+Scrolls the element matching the `selector` into the viewport. Useful for triggering lazy-loaded content.
+
+```python
+scroll_to_footer = NavigationStep.scroll("footer#main-footer", wait_after_selector="#lazy-loaded-ads")
+```
+
+#### `NavigationStep.hover(selector, timeout=5000, wait_after_selector=None)`
+
+Hover over an element matching the `selector`.
+
+```python
+hover_menu_item = NavigationStep.hover("li.menu-item-with-submenu", wait_after_selector=".submenu-visible")
+```
+
+#### `NavigationStep.select_date(target_date, calendar_selector, prev_month_selector, next_month_selector, month_year_display_selector, date_cell_selector, view_results_selector=None, timeout=15000, wait_after_selector=None)`
+
+Selects a specific date from a calendar pop-up. This step intelligently navigates months until the `target_date` (format: YYYY-MM-DD) is found and clicked. You must provide specific selectors for the calendar components.
+
+```python
+import asyncio
+from nuxt_scraper import NuxtDataExtractor, NavigationStep
+from nuxt_scraper.utils import StealthConfig
+
+async def select_date_example():
+    # First, click the input that opens the calendar (if necessary)
+    open_calendar_step = NavigationStep.click("input#date-picker-input")
+
+    # Then, define the date selection step
+    select_specific_date = NavigationStep.select_date(
+        target_date="2026-03-15", # Example: March 15, 2026
+        calendar_selector="div.calendar-popup", # Main calendar container
+        prev_month_selector="button.prev-month", # Button to go to previous month
+        next_month_selector="button.next-month", # Button to go to next month
+        month_year_display_selector="div.month-year-display", # Element showing current month/year (e.g., "Feb 2026")
+        date_cell_selector="div.day-cell", # General selector for individual date cells
+        view_results_selector="button:has-text('View Results')", # Optional: button to click after date is selected
+        timeout=20000, # Max timeout for this entire step
+    )
+
+    async with NuxtDataExtractor(headless=False, stealth_config=StealthConfig()) as extractor:
+        data = await extractor.extract(
+            "https://your-site-with-calendar.com",
+            steps=[open_calendar_step, select_specific_date]
+        )
+    print("Data after date selection:", data)
+
+if __name__ == "__main__":
+    asyncio.run(select_date_example())
+```
+
+### Anti-Detection Configuration (`StealthConfig`)
+
+To make your scraping activities less detectable, `nuxt_scraper` offers a `StealthConfig` dataclass to fine-tune human-like behaviors. By default, anti-detection is enabled with sensible defaults. You can customize it as needed.
 
 ```python
 from nuxt_scraper.utils import StealthConfig
 
+# Enable only random delays and human typing
+moderate_stealth = StealthConfig(
+    random_delays=True,
+    human_typing=True,
+    mouse_movement=False, # Disable mouse movement for faster execution
+    randomize_viewport=False,
+    realistic_user_agent=False,
+)
+
+# Or a more aggressive configuration
 paranoid_config = StealthConfig(
     random_delays=True,
     min_action_delay_ms=500,
     max_action_delay_ms=4000,
     human_typing=True,
     typing_speed_wpm=45,
+    typo_chance=0.03,
+    pause_chance=0.08,
     mouse_movement=True,
     randomize_viewport=True,
     realistic_user_agent=True,
-    typo_chance=0.03,
-    pause_chance=0.08,
 )
 
-# Then pass to extractor:
+# Pass to extractor:
 # extractor = NuxtDataExtractor(stealth_config=paranoid_config)
+# or
+# data = extract_nuxt_data(url, stealth_config=moderate_stealth)
 ```
 
-### Exceptions
+### Error Handling
 
-- **NuxtFlowException** – Base for all Nuxt Scraper errors.
-- **NuxtDataNotFound** – `__NUXT_DATA__` element missing or empty.
-- **NavigationStepFailed** – A navigation step failed (includes step and original error).
-- **ExtractionTimeout** – Timeout waiting for Nuxt data.
-- **DataParsingError** – Content is not valid JSON (includes `raw_content`).
-- **BrowserError** – Playwright/browser error.
-- **ProxyError** – Issue with proxy configuration or connection.
-- **DateNotFoundInCalendarError** – Target date not found in calendar pop-up.
+`nuxt_scraper` defines a suite of custom exceptions, all inheriting from `NuxtFlowException`, to help you gracefully handle various failure scenarios. Key exceptions include `NuxtDataNotFound`, `NavigationStepFailed`, `ExtractionTimeout`, `DataParsingError`, `BrowserError`, `ProxyError`, and `DateNotFoundInCalendarError`.
+
+## API Reference
+
+### `extract_nuxt_data(url, steps=None, headless=True, timeout=30000, wait_for_nuxt=True, wait_for_nuxt_timeout=None, stealth_config=None, proxy=None)`
+
+Convenience function: creates an extractor, opens the URL, and returns the parsed `__NUXT_DATA__`.
+
+- **`url`** (`str`) – Target page URL.
+- **`steps`** (`Optional[List[NavigationStep]]`) – List of `NavigationStep` instances to execute.
+- **`headless`** (`bool`) – Run browser in headless mode (default `True`).
+- **`timeout`** (`int`) – Default timeout for Playwright operations in milliseconds (default `30000`).
+- **`wait_for_nuxt`** (`bool`) – If `True`, waits for the `#__NUXT_DATA__` element to be present (default `True`).
+- **`wait_for_nuxt_timeout`** (`Optional[int]`) – Specific timeout for waiting for `#__NUXT_DATA__`. Defaults to `timeout`.
+- **`stealth_config`** (`Optional[StealthConfig]`) – Configuration for anti-detection features. Defaults to `StealthConfig()`.
+- **`proxy`** (`Optional[Dict[str, str]]`) – Dictionary for proxy settings (e.g., `{"server": "http://ip:port", "username": "user", "password": "pass"}`).
+
+### `NuxtDataExtractor`
+
+Main class for controlled extraction and reuse of a browser session. Use as an `async with` context manager.
+
+**Constructor:**
+
+- **`headless`** (`bool`) – Run browser headless (default `True`).
+- **`timeout`** (`int`) – Default timeout for Playwright operations in milliseconds (default `30000`).
+- **`browser_type`** (`str`) – `"chromium"`, `"firefox"`, or `"webkit"` (default `"chromium"`).
+- **`ignore_https_errors`** (`bool`) – Ignore HTTPS certificate errors (default `False`).
+- **`viewport_width`** (`Optional[int]`) / **`viewport_height`** (`Optional[int]`) – Fixed viewport size in pixels. Ignored when `StealthConfig.randomize_viewport` is `True`.
+- **`user_agent`** (`Optional[str]`) – Custom user agent string. Ignored when `StealthConfig.realistic_user_agent` is `True`.
+- **`stealth_config`** (`Optional[StealthConfig]`) – Configuration for anti-detection features. Defaults to `StealthConfig()`.
+- **`proxy`** (`Optional[Dict[str, str]]`) – Dictionary for proxy settings.
+
+**Methods:**
+
+- **`extract(url, steps=None, wait_for_nuxt=True, wait_for_nuxt_timeout=None)`**  
+  Asynchronous method: navigates to `url`, runs `steps` (if any), then extracts and returns parsed Nuxt data.
+- **`extract_sync(url, steps=None, wait_for_nuxt=True, wait_for_nuxt_timeout=None)`**  
+  Synchronous wrapper that executes the `extract()` method in an event loop.
+
+### `NavigationStep`
+
+Dataclass representing a single browser interaction step. Steps are executed in order before data extraction.
+
+| Factory method | Description | Parameters |
+|----------------|-------------|------------|
+| `NavigationStep.click` | Clicks an element. | `selector`, `timeout`, `wait_after_selector` |
+| `NavigationStep.fill` | Fills an input/textarea. | `selector`, `value`, `timeout`, `wait_after_selector` |
+| `NavigationStep.select` | Selects a dropdown option. | `selector`, `value`, `timeout`, `wait_after_selector` |
+| `NavigationStep.wait` | Waits for a selector. | `selector`, `timeout`, `wait_after_selector` |
+| `NavigationStep.scroll` | Scrolls element into view. | `selector`, `timeout`, `wait_after_selector` |
+| `NavigationStep.hover` | Hovers over an element. | `selector`, `timeout`, `wait_after_selector` |
+| `NavigationStep.select_date` | Selects a date from a calendar. | `target_date`, `calendar_selector`, `prev_month_selector`, `next_month_selector`, `month_year_display_selector`, `date_cell_selector`, `view_results_selector`, `timeout`, `wait_after_selector` |
 
 ## Anti-Detection Strategies
 
@@ -178,45 +312,11 @@ While Nuxt Scraper provides robust browser-level anti-detection, certain advance
 
 Effective evasion against advanced WAFs often requires a layered approach combining Nuxt Scraper's browser stealth with high-quality external proxy infrastructure and, if necessary, CAPTCHA solving services.
 
-## Examples
+## Examples (Deprecated - see Usage section)
 
 -   **examples/basic_usage.py** – Simple extraction and context manager usage.
 -   **examples/advanced_navigation.py** – Multiple steps: tabs, fill, scroll, select.
 -   **examples/async_parallel.py** – Sequential and parallel extraction from multiple URLs.
-
-### New Example: Selecting a Date from a Calendar Pop-up
-
-```python
-import asyncio
-from nuxt_scraper import NuxtDataExtractor, NavigationStep
-
-async def select_date_example():
-    # First, click the input that opens the calendar
-    open_calendar_step = NavigationStep.click("input#date-picker-input")
-
-    # Then, define the date selection step
-    select_specific_date = NavigationStep.select_date(
-        target_date="2026-03-15", # March 15, 2026
-        calendar_selector="div.calendar-popup",
-        prev_month_selector="button.prev-month",
-        next_month_selector="button.next-month",
-        month_year_display_selector="div.month-year-display", # e.g. "Feb 2026"
-        date_cell_selector="div.day-cell",
-        view_results_selector="button:has-text('View Results')",
-        timeout=20000,
-    )
-
-    async with NuxtDataExtractor(headless=False, stealth_config=StealthConfig()) as extractor:
-        data = await extractor.extract(
-            "https://your-site-with-calendar.com",
-            steps=[open_calendar_step, select_specific_date]
-        )
-    print("Data after date selection:", data)
-
-if __name__ == "__main__":
-    # asyncio.run(select_date_example())
-    pass
-```
 
 ## Development
 
