@@ -1,4 +1,7 @@
-"""Helper utilities and configuration for NuxtFlow, including anti-detection settings."""
+"""Helper utilities and configuration for Nuxt Scraper.
+
+Includes anti-detection settings.
+"""
 
 from __future__ import annotations
 
@@ -22,8 +25,8 @@ class StealthConfig:
         human_typing: Simulate realistic typing speed and typos (default: True).
         typing_speed_wpm: Words per minute for typing simulation (default: 65).
         typo_chance: Probability of a typo (0.0 to 1.0, default: 0.02).
-        pause_chance: Probability of a longer pause during typing (0.0 to 1.0, default: 0.05).
-        mouse_movement: Simulate realistic mouse movements before clicks (default: True).
+        pause_chance: Probability of longer pause during typing (0.0-1.0, default 0.05).
+        mouse_movement: Simulate realistic mouse movements before clicks (default True).
         randomize_viewport: Randomize browser viewport size (default: True).
         realistic_user_agent: Use a random realistic user agent string (default: True).
         # Add more stealth options here as needed
@@ -43,16 +46,20 @@ class StealthConfig:
 
     # Internal field to hold the chosen user agent if randomized
     _resolved_user_agent: Optional[str] = field(init=False, repr=False, default=None)
-    _resolved_viewport: Optional[tuple[int, int]] = field(init=False, repr=False, default=None)
+    _resolved_viewport: Optional[tuple[int, int]] = field(
+        init=False, repr=False, default=None
+    )
 
 
-def merge_stealth_configs(base: StealthConfig, override: Optional[StealthConfig]) -> StealthConfig:
+def merge_stealth_configs(
+    base: StealthConfig, override: Optional[StealthConfig]
+) -> StealthConfig:
     """
     Merges an override StealthConfig into a base StealthConfig.
 
     Args:
         base: The base configuration.
-        override: An optional override configuration. Only non-None fields will override.
+        override: Optional override. Only non-None fields override base.
 
     Returns:
         A new StealthConfig instance with merged values.
@@ -62,7 +69,7 @@ def merge_stealth_configs(base: StealthConfig, override: Optional[StealthConfig]
 
     merged = StealthConfig()
     for field_name, field_value in base.__dict__.items():
-        if not field_name.startswith("_"): # Skip internal fields
+        if not field_name.startswith("_"):  # Skip internal fields
             override_value = getattr(override, field_name, None)
             if override_value is not None:
                 setattr(merged, field_name, override_value)

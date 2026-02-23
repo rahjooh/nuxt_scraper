@@ -83,5 +83,5 @@ STEALTH_SCRIPTS: list[str] = [
         }
         return rects;
     };
-    """
+    """,
 ]

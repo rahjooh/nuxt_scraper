@@ -34,13 +34,13 @@ async def simulate_mouse_movement(page: Page, target_selector: str) -> None:
         target_y = box["y"] + box["height"] / 2
 
         await page.mouse.move(start_x, start_y)
-        await asyncio.sleep(random.uniform(0.1, 0.3)) # Initial pause
+        await asyncio.sleep(random.uniform(0.1, 0.3))  # Initial pause
 
         # Simulate curved movement with multiple intermediate points
-        num_steps = random.randint(5, 15) # More steps for smoother curves
+        num_steps = random.randint(5, 15)  # More steps for smoother curves
         for i in range(num_steps + 1):
             progress = i / num_steps
-            
+
             # Introduce some curve/randomness
             x_offset = random.uniform(-10, 10) * (1 - abs(progress - 0.5) * 2)
             y_offset = random.uniform(-10, 10) * (1 - abs(progress - 0.5) * 2)
@@ -49,7 +49,9 @@ async def simulate_mouse_movement(page: Page, target_selector: str) -> None:
             current_y = start_y + (target_y - start_y) * progress + y_offset
 
             await page.mouse.move(current_x, current_y)
-            await asyncio.sleep(random.uniform(0.01, 0.08)) # Small delays between moves
+            await asyncio.sleep(
+                random.uniform(0.01, 0.08)
+            )  # Small delays between moves
 
         # Final small adjustment to the exact center (or near center)
         await page.mouse.move(target_x, target_y)
@@ -57,5 +59,6 @@ async def simulate_mouse_movement(page: Page, target_selector: str) -> None:
     except Exception as e:
         # Log the error but don't fail the extraction if mouse movement fails
         import logging
+
         logger = logging.getLogger(__name__)
         logger.warning(f"Failed to simulate mouse movement to {target_selector}: {e}")

@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from nuxtflow.exceptions import DataParsingError, NuxtDataNotFound
+from nuxt_scraper.exceptions import DataParsingError, NuxtDataNotFound
 
 logger = logging.getLogger(__name__)
 

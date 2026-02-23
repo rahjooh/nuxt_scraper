@@ -4,22 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, List, Optional, Dict
+from typing import Any, Dict, List, Optional
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+from playwright.async_api import (
+    Browser,
+    BrowserContext,
+    Playwright,
+    async_playwright,
+)
 
-from nuxtflow.anti_detection.stealth_scripts import STEALTH_SCRIPTS
-from nuxtflow.anti_detection.user_agents import get_realistic_user_agent
-from nuxtflow.anti_detection.viewports import get_random_viewport
-from nuxtflow.exceptions import BrowserError, ExtractionTimeout, NuxtDataNotFound, ProxyError
-from nuxtflow.parser import (
+from nuxt_scraper.anti_detection.stealth_scripts import STEALTH_SCRIPTS
+from nuxt_scraper.anti_detection.user_agents import get_realistic_user_agent
+from nuxt_scraper.anti_detection.viewports import get_random_viewport
+from nuxt_scraper.exceptions import (
+    BrowserError,
+    ExtractionTimeout,
+    ProxyError,
+)
+from nuxt_scraper.parser import (
     EXTRACT_NUXT_DATA_SCRIPT,
     NUXT_DATA_ELEMENT_ID,
     parse_nuxt_json,
     validate_extracted_result,
 )
-from nuxtflow.steps import NavigationStep, execute_steps
-from nuxtflow.utils import StealthConfig
+from nuxt_scraper.steps import NavigationStep, execute_steps
+from nuxt_scraper.utils import StealthConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +62,11 @@ class NuxtDataExtractor:
             timeout: Default timeout for navigation and extraction (ms).
             browser_type: One of "chromium", "firefox", "webkit".
             ignore_https_errors: Ignore HTTPS certificate errors.
-            viewport_width: Viewport width in pixels. If randomize_viewport is True in StealthConfig, this is ignored.
-            viewport_height: Viewport height in pixels. If randomize_viewport is True in StealthConfig, this is ignored.
-            user_agent: Optional custom user agent string. If realistic_user_agent is True in StealthConfig, this is ignored.
-            stealth_config: Configuration for anti-detection features. Defaults to StealthConfig().
-            proxy: Dictionary for proxy settings, e.g., {"server": "http://ip:port", "username": "user", "password": "pass"}.
+            viewport_width: Viewport width (px). Ignored when randomize_viewport.
+            viewport_height: Viewport height (px). Ignored when randomize_viewport.
+            user_agent: Custom user agent. Ignored when realistic_user_agent.
+            stealth_config: Anti-detection config. Defaults to StealthConfig().
+            proxy: Proxy dict e.g. {"server": "http://ip:port"}.
         """
         self.headless = headless
         self.timeout = timeout
@@ -90,22 +99,32 @@ class NuxtDataExtractor:
 
             launch_args = []
             if self.stealth_config.enabled:
-                launch_args.extend([
-                    '--no-first-run',
-                    '--no-default-browser-check',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                ])
-            
-            self._browser = await browser_launcher.launch(headless=self.headless, args=launch_args)
+                launch_args.extend(
+                    [
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-web-security",
+                        "--disable-features=VizDisplayCompositor",
+                    ]
+                )
+
+            self._browser = await browser_launcher.launch(
+                headless=self.headless, args=launch_args
+            )
 
             # Resolve viewport and user agent based on stealth config
             if self.stealth_config.enabled and self.stealth_config.randomize_viewport:
                 resolved_width, resolved_height = get_random_viewport()
-                self.stealth_config._resolved_viewport = (resolved_width, resolved_height)
+                self.stealth_config._resolved_viewport = (
+                    resolved_width,
+                    resolved_height,
+                )
             else:
-                resolved_width, resolved_height = self.viewport_width or 1280, self.viewport_height or 720
+                resolved_width, resolved_height = (
+                    self.viewport_width or 1280,
+                    self.viewport_height or 720,
+                )
 
             if self.stealth_config.enabled and self.stealth_config.realistic_user_agent:
                 resolved_user_agent = get_realistic_user_agent()
@@ -132,8 +151,13 @@ class NuxtDataExtractor:
 
         except Exception as e:
             if self.proxy:
-                raise ProxyError(f"Failed to launch browser with proxy {self.proxy}: {e!s}", original_error=e) from e
-            raise BrowserError(f"Failed to launch browser: {e!s}", original_error=e) from e
+                raise ProxyError(
+                    f"Failed to launch browser with proxy {self.proxy}: {e!s}",
+                    original_error=e,
+                ) from e
+            raise BrowserError(
+                f"Failed to launch browser: {e!s}", original_error=e
+            ) from e
 
     async def _stop(self) -> None:
         """Close browser and stop Playwright."""
@@ -150,7 +174,7 @@ class NuxtDataExtractor:
     def _ensure_started(self) -> None:
         if not self._context:
             raise RuntimeError(
-                "Extractor not started. Use 'async with NuxtDataExtractor()' or call start() first."
+                "Extractor not started. Use async with NuxtDataExtractor() or start()."
             )
 
     async def extract(
@@ -167,13 +191,15 @@ class NuxtDataExtractor:
             url: Target page URL.
             steps: Optional list of navigation steps to run before extraction.
             wait_for_nuxt: If True, wait for #__NUXT_DATA__ to be present.
-            wait_for_nuxt_timeout: Timeout in ms for waiting for Nuxt data (default: self.timeout).
+            wait_for_nuxt_timeout: Timeout (ms) for Nuxt data. Default: self.timeout.
 
         Returns:
             Parsed Nuxt data (typically a dict).
         """
         self._ensure_started()
-        timeout_ms = wait_for_nuxt_timeout if wait_for_nuxt_timeout is not None else self.timeout
+        timeout_ms = (
+            wait_for_nuxt_timeout if wait_for_nuxt_timeout is not None else self.timeout
+        )
 
         page = await self._context.new_page()
         try:
@@ -184,7 +210,9 @@ class NuxtDataExtractor:
 
             if wait_for_nuxt:
                 try:
-                    await page.wait_for_selector(f"#{NUXT_DATA_ELEMENT_ID}", timeout=timeout_ms)
+                    await page.wait_for_selector(
+                        f"#{NUXT_DATA_ELEMENT_ID}", timeout=timeout_ms
+                    )
                 except Exception as e:
                     raise ExtractionTimeout(
                         f"Timed out waiting for #{NUXT_DATA_ELEMENT_ID}: {e!s}"
@@ -240,6 +268,7 @@ def extract_nuxt_data(
     Returns:
         Parsed Nuxt data.
     """
+
     async def _run() -> Any:
         async with NuxtDataExtractor(
             headless=headless,
