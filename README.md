@@ -64,6 +64,8 @@ Convenience function: creates an extractor, opens the URL, and returns the parse
 - **headless** – Run browser headless (default `True`).
 - **timeout** – Timeout in milliseconds (default `30000`).
 - **wait_for_nuxt** – Wait for `#__NUXT_DATA__` to be present (default `True`).
+- **stealth_config** – `StealthConfig` object for anti-detection settings.
+- **proxy** – Dictionary for proxy settings (`{"server": "http://ip:port", ...}`).
 
 ### `NuxtDataExtractor`
 
@@ -75,8 +77,10 @@ Main class for controlled extraction and reuse of a browser session.
 - **timeout** – Default timeout in ms (default `30000`).
 - **browser_type** – `"chromium"`, `"firefox"`, or `"webkit"` (default `"chromium"`).
 - **ignore_https_errors** – Ignore HTTPS certificate errors (default `False`).
-- **viewport_width** / **viewport_height** – Viewport size in pixels.
-- **user_agent** – Optional custom user agent.
+- **viewport_width** / **viewport_height** – Viewport size in pixels. Overridden if `stealth_config.randomize_viewport` is `True`.
+- **user_agent** – Optional custom user agent. Overridden if `stealth_config.realistic_user_agent` is `True`.
+- **stealth_config** – `StealthConfig` object for anti-detection settings. Defaults to `StealthConfig()`.
+- **proxy** – Dictionary for proxy settings (`{"server": "http://ip:port", ...}`).
 
 **Methods:**
 
@@ -107,6 +111,30 @@ Steps are executed in order before extraction.
 
 All accept optional **wait_after_selector** to wait for another element after the action.
 
+### `StealthConfig`
+
+Dataclass for configuring anti-detection behaviors. Use `StealthConfig()` for defaults or customize:
+
+```python
+from nuxtflow.utils import StealthConfig
+
+paranoid_config = StealthConfig(
+    random_delays=True,
+    min_action_delay_ms=500,
+    max_action_delay_ms=4000,
+    human_typing=True,
+    typing_speed_wpm=45,
+    mouse_movement=True,
+    randomize_viewport=True,
+    realistic_user_agent=True,
+    typo_chance=0.03,
+    pause_chance=0.08,
+)
+
+# Then pass to extractor:
+# extractor = NuxtDataExtractor(stealth_config=paranoid_config)
+```
+
 ### Exceptions
 
 - **NuxtFlowException** – Base for all NuxtFlow errors.
@@ -115,12 +143,53 @@ All accept optional **wait_after_selector** to wait for another element after th
 - **ExtractionTimeout** – Timeout waiting for Nuxt data.
 - **DataParsingError** – Content is not valid JSON (includes `raw_content`).
 - **BrowserError** – Playwright/browser error.
+- **ProxyError** – Issue with proxy configuration or connection.
+
+## Anti-Detection Strategies
+
+NuxtFlow incorporates several measures to make automation less detectable:
+
+-   **Human-like Delays**: Random pauses between actions and during typing.
+-   **Realistic Mouse Movements**: Simulated curved mouse paths before clicks.
+-   **Human-like Typing**: Varied typing speeds, occasional typos, and corrections.
+-   **User Agent Rotation**: Uses a random, realistic browser user agent for each new browser context.
+-   **Randomized Viewports**: Cycles through common desktop resolutions to avoid a consistent browser footprint.
+-   **Stealth Scripts**: Injects JavaScript to mask `webdriver` property, mock `chrome.runtime`, spoof permissions API, mimic browser plugins, and reduce WebGL fingerprinting.
+
+These features are controlled via the `StealthConfig` object, allowing you to fine-tune the level of stealth needed.
+
+## WAF & Advanced Detection Considerations
+
+While NuxtFlow provides robust browser-level anti-detection, certain advanced measures like AWS WAF, sophisticated IP reputation systems, and CAPTCHAs require additional considerations:
+
+-   **TLS-based Rules**: Playwright uses real browser engines, so its TLS fingerprint is generally good. However, highly advanced WAFs might analyze the full TLS handshake for bot patterns. For such cases, consider using *external proxy services* that specialize in TLS fingerprinting obfuscation. NuxtFlow's proxy support allows integration with these services.
+
+-   **IP Reputation**: Repeated requests from a single IP address will quickly flag you. For effective evasion:
+    -   **Proxy Rotation**: Utilize a pool of high-quality, frequently rotating residential or mobile proxies. NuxtFlow allows you to configure a proxy for each extractor instance.
+    -   **Proxy Provider**: Choose reputable proxy providers (e.g., Bright Data, Oxylabs, Smartproxy) that manage IP rotation and quality.
+
+-   **CAPTCHA**: NuxtFlow does not automatically solve CAPTCHAs, as this is a complex and evolving challenge. If you encounter CAPTCHAs:
+    -   **Manual Intervention**: For low-volume tasks, you might configure the extractor to pause and wait for manual CAPTCHA solving.
+    -   **Third-Party CAPTCHA Solving Services**: Integrate with services like 2Captcha, Anti-Captcha, or CapMonster. Your script can detect the CAPTCHA, send it to the service, and then input the solved token.
+
+-   **Behavioral CAPTCHAs**: These monitor mouse movements, typing speed, and other interactions. NuxtFlow's human-like behaviors (mouse movement, typing, delays) significantly improve your chances against these, but are not foolproof.
+
+Effective evasion against advanced WAFs often requires a layered approach combining NuxtFlow's browser stealth with high-quality external proxy infrastructure and, if necessary, CAPTCHA solving services.
 
 ## Examples
 
-- **examples/basic_usage.py** – Simple extraction and context manager usage.
-- **examples/advanced_navigation.py** – Multiple steps: tabs, fill, scroll, select.
-- **examples/async_parallel.py** – Sequential and parallel extraction from multiple URLs.
+-   **examples/basic_usage.py** – Simple extraction and context manager usage.
+-   **examples/advanced_navigation.py** – Multiple steps: tabs, fill, scroll, select.
+-   **examples/async_parallel.py** – Sequential and parallel extraction from multiple URLs.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest
+black nuxtflow tests
+ruff check nuxtflow tests
+```
 
 ## Contributing
 

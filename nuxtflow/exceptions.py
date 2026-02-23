@@ -61,3 +61,11 @@ class BrowserError(NuxtFlowException):
     def __init__(self, message: str, original_error: Exception | None = None) -> None:
         self.original_error = original_error
         super().__init__(message)
+
+
+class ProxyError(NuxtFlowException):
+    """Raised when there is an issue with proxy configuration or connection."""
+
+    def __init__(self, message: str, original_error: Exception | None = None) -> None:
+        self.original_error = original_error
+        super().__init__(message)
