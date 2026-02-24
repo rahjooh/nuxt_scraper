@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-25
+
+### ✨ New Features
+
+- **API Response Capture**: New `extract_with_api_capture()` method captures API responses during navigation
+  - Essential for calendar navigation and dynamic content where `window.__NUXT__` doesn't update
+  - Returns tuple of `(nuxt_data, api_responses)` for accessing both data sources
+  - Supports custom filter functions for API responses
+  - Response handler attached BEFORE navigation to capture all API calls including initial page load
+- **API Response Helper**: New `find_api_response()` method to search captured responses by URL pattern
+  - Supports fallback to first response if pattern not found
+  - Returns matched response data for easy access
+- **Date Validation Utility**: New `validate_meeting_date()` function in utils
+  - Validates extracted data matches expected date
+  - Handles both "YYYY-MM-DD" and ISO datetime formats ("YYYY-MM-DDTHH:MM:SS.000Z")
+  - Supports both API response and `__NUXT__` data structures
+
+### 🔧 Improvements
+
+- **Calendar Navigation Pattern**: Improved handling of dynamic content after date selection
+- **Response Handler Timing**: Fixed API capture timing to ensure all responses are captured
+- **Documentation**: Added comprehensive "Working with Dynamic Content and API Responses" section to README
+- **Examples**: Added racenet examples demonstrating calendar navigation with API capture
+
+### 📚 Documentation
+
+- New README section: "Working with Dynamic Content and API Responses"
+- Explains when `window.__NUXT__` doesn't update
+- Shows `extract_with_api_capture()` usage patterns
+- Calendar navigation best practices
+- API response priority over stale `__NUXT__` data
+
+### 🎯 Use Cases
+
+This release specifically addresses scenarios where:
+- Calendar navigation requires capturing API responses
+- Dynamic content updates don't reflect in `window.__NUXT__`
+- You need to validate extracted data matches expected dates
+- Multiple data sources need to be checked (API + `__NUXT__`)
+
 ## [0.3.0] - 2026-02-24
 
 ### 🚀 Major Release - Complete Deserialization Engine Rewrite

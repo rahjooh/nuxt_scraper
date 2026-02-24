@@ -782,6 +782,106 @@ if __name__ == "__main__":
     asyncio.run(select_date_example())
 ```
 
+#### How to Find Calendar Selectors
+
+To use `NavigationStep.select_date()` with any calendar widget, you need to identify the CSS selectors for each component. Here's a step-by-step guide:
+
+**Step 1: Open Browser DevTools**
+1. Navigate to the page with the calendar
+2. Open DevTools (F12 or Right-click → Inspect)
+3. Open the calendar widget
+
+**Step 2: Identify Each Component**
+
+1. **Calendar Container** (`calendar_selector`):
+   - Right-click the calendar popup → Inspect
+   - Find the outermost container element
+   - Copy its CSS selector (right-click element → Copy → Copy selector)
+   - Example: `.vdp-datepicker__calendar` or `div.calendar-popup`
+
+2. **Month/Year Display** (`month_year_display_selector`):
+   - Inspect the element showing "February 2025" or similar
+   - Copy its selector
+   - Example: `.vdp-datepicker__calendar header span.up` or `div.month-year`
+
+3. **Previous Month Button** (`prev_month_selector`):
+   - Inspect the "←" or "Prev" button
+   - Copy its selector
+   - Example: `.vdp-datepicker__calendar header .prev` or `button.prev-month`
+
+4. **Next Month Button** (`next_month_selector`):
+   - Inspect the "→" or "Next" button
+   - Copy its selector
+   - Example: `.vdp-datepicker__calendar header .next` or `button.next-month`
+
+5. **Date Cells** (`date_cell_selector`):
+   - Inspect any day cell (e.g., "15")
+   - Copy the selector that matches ALL day cells (not just one)
+   - Example: `span.cell.day` or `td.day-cell` or `div[class*="day"]`
+
+6. **View Results Button** (`view_results_selector`, optional):
+   - If there's a button to click after selecting date
+   - Inspect and copy its selector
+   - Example: `button:has-text('View Results')` or `button.apply`
+
+**Step 3: Test Your Selectors**
+
+Create a test script to verify selectors work:
+
+```python
+async with NuxtDataExtractor(headless=False) as extractor:
+    await extractor.navigate("https://your-site.com")
+    
+    # Test each selector individually
+    page = extractor._context.pages[0]
+    
+    # Test calendar appears
+    calendar = await page.wait_for_selector(".vdp-datepicker__calendar", timeout=5000)
+    print("✅ Calendar found")
+    
+    # Test month display
+    month_display = await page.wait_for_selector(".vdp-datepicker__calendar header span.up", timeout=5000)
+    print(f"✅ Month display: {await month_display.text_content()}")
+    
+    # Test navigation buttons
+    next_btn = await page.wait_for_selector(".vdp-datepicker__calendar header .next", timeout=5000)
+    print("✅ Next button found")
+```
+
+**Step 4: Common Patterns**
+
+Different calendar libraries use different class names:
+
+- **Vue DatePicker**: `.vdp-datepicker__calendar`, `.cell.day`
+- **jQuery UI DatePicker**: `.ui-datepicker`, `.ui-datepicker-calendar td`
+- **Material-UI**: `.MuiCalendarPicker-root`, `.MuiPickersDay-root`
+- **Custom calendars**: Inspect and find unique class names or data attributes
+
+**Step 5: Use Fallback Selectors**
+
+If selectors might change, use multiple options:
+
+```python
+# Try multiple selectors (package handles this internally, but you can be explicit)
+calendar_selector = ".vdp-datepicker__calendar, [class*='datepicker'], [class*='calendar']"
+```
+
+**Real-World Example:**
+
+See `examples/racenet/01_historical_calendar_navigation.py` for a complete working example with actual selectors. The example shows how to organize selectors in a dictionary for maintainability:
+
+```python
+CALENDAR_SELECTORS = {
+    "select_date_button": "a.tab:has-text('Select Date')",
+    "calendar_selector": ".vdp-datepicker__calendar",
+    "month_year_display": ".vdp-datepicker__calendar header span.up",
+    "prev_month": ".vdp-datepicker__calendar header .prev",
+    "next_month": ".vdp-datepicker__calendar header .next",
+    "date_cell": "span.cell.day",
+    "view_results": "button:has-text('View Results')",
+}
+```
+
 ### Anti-Detection Configuration (`StealthConfig`)
 
 To make your scraping activities less detectable, `nuxt_scraper` offers a `StealthConfig` dataclass to fine-tune human-like behaviors. By default, anti-detection is enabled with sensible defaults. You can customize it as needed.
@@ -817,6 +917,120 @@ paranoid_config = StealthConfig(
 # or
 # data = extract_nuxt_data(url, stealth_config=moderate_stealth)
 ```
+
+### Working with Dynamic Content and API Responses
+
+When navigating calendars or interacting with dynamic content, `window.__NUXT__` may not update after user interactions. In these cases, the fresh data is often available through API responses. The `extract_with_api_capture()` method captures all API responses during navigation and extraction, allowing you to access the most up-to-date data.
+
+#### Why Use API Response Capture?
+
+On some sites (like racenet.com.au), when you select a date from a calendar:
+- The page visually updates with new content
+- An API call is made to fetch the new data
+- **But** `window.__NUXT__` retains the original page load data (stale)
+
+In these scenarios, you need to capture the API responses to get the correct data.
+
+#### Basic Usage
+
+```python
+import asyncio
+from nuxt_scraper import NuxtDataExtractor, NavigationStep, validate_meeting_date
+
+async def extract_with_calendar_navigation():
+    async with NuxtDataExtractor(headless=False) as extractor:
+        # Use extract_with_api_capture instead of extract
+        nuxt_data, api_responses = await extractor.extract_with_api_capture(
+            "https://racenet.com.au/results/harness",
+            steps=[
+                NavigationStep.click("a.tab:has-text('Select Date')"),
+                NavigationStep.select_date(
+                    target_date="2025-02-20",
+                    calendar_selector=".vdp-datepicker__calendar",
+                    prev_month_selector=".vdp-datepicker__calendar .prev",
+                    next_month_selector=".vdp-datepicker__calendar .next",
+                    month_year_display_selector=".vdp-datepicker__calendar header span.up",
+                    date_cell_selector=".vdp-datepicker__calendar .cell.day",
+                    view_results_selector="button:has-text('View Results')",
+                    timeout=20000
+                )
+            ]
+        )
+        
+        # Find the specific API response containing the updated data
+        meetings_response = extractor.find_api_response(
+            api_responses,
+            "meetingsGroupedByStartEndDate"  # URL pattern to search for
+        )
+        
+        if meetings_response:
+            data = meetings_response["data"]
+            
+            # Validate the date matches what we selected
+            if validate_meeting_date(data, "2025-02-20"):
+                print("✅ Date validation passed!")
+                return data
+            else:
+                print("❌ Date mismatch - data may be stale")
+        else:
+            print("⚠️ API response not found, falling back to __NUXT__")
+            return nuxt_data
+
+if __name__ == "__main__":
+    data = asyncio.run(extract_with_calendar_navigation())
+    print(data)
+```
+
+#### Custom API Response Filtering
+
+By default, `extract_with_api_capture()` captures JSON responses from `puntapi.com` or URLs containing `graphql`. You can provide a custom filter:
+
+```python
+def my_api_filter(response):
+    """Capture all successful JSON responses from any API endpoint."""
+    return (
+        response.status == 200 
+        and "api" in response.url.lower()
+    )
+
+nuxt_data, api_responses = await extractor.extract_with_api_capture(
+    url,
+    steps=steps,
+    api_filter=my_api_filter
+)
+```
+
+#### Finding Specific API Responses
+
+The `find_api_response()` helper searches captured responses by URL pattern:
+
+```python
+# Find response with specific endpoint
+meetings_data = extractor.find_api_response(api_responses, "meetingsGrouped")
+
+# With fallback to first response if pattern not found
+any_data = extractor.find_api_response(api_responses, "specific-endpoint", fallback_to_first=True)
+```
+
+#### Date Validation Utility
+
+The `validate_meeting_date()` utility helps verify that extracted data matches your expected date. It handles both simple date formats (`YYYY-MM-DD`) and ISO datetime strings (`YYYY-MM-DDTHH:MM:SS.000Z`):
+
+```python
+from nuxt_scraper import validate_meeting_date
+
+# With API response
+if validate_meeting_date(api_response["data"], "2025-02-20"):
+    print("Date matches!")
+
+# With __NUXT__ data
+if validate_meeting_date(nuxt_data, "2025-02-20", date_field="meetingDateLocal"):
+    print("Date matches!")
+```
+
+#### Complete Calendar Navigation Pattern
+
+For a complete example of calendar navigation with API capture, see `examples/racenet/01_historical_calendar_navigation.py`.
 
 ### Error Handling
 

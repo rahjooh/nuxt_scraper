@@ -303,53 +303,6 @@ class NuxtDataExtractor:
             )
         )
 
-
-def extract_nuxt_data(
-    url: str,
-    steps: Optional[List[NavigationStep]] = None,
-    headless: bool = True,
-    timeout: int = 30000,
-    wait_for_nuxt: bool = True,
-    use_combined_extraction: bool = True,
-    deserialize_nuxt3: bool = True,
-    stealth_config: Optional[StealthConfig] = None,
-    proxy: Optional[Dict[str, str]] = None,
-) -> Any:
-    """
-    Convenience function: create an extractor, extract once, return data.
-
-    Args:
-        url: Target page URL.
-        steps: Optional navigation steps.
-        headless: Run browser headless.
-        timeout: Timeout in ms.
-        wait_for_nuxt: Wait for __NUXT_DATA__ element (legacy mode only).
-        use_combined_extraction: Try both #__NUXT_DATA__ and window.__NUXT__.
-        deserialize_nuxt3: Deserialize Nuxt 3 reactive references.
-        stealth_config: Configuration for anti-detection features.
-        proxy: Dictionary for proxy settings.
-
-    Returns:
-        Parsed Nuxt data.
-    """
-
-    async def _run() -> Any:
-        async with NuxtDataExtractor(
-            headless=headless,
-            timeout=timeout,
-            stealth_config=stealth_config,
-            proxy=proxy,
-        ) as extractor:
-            return await extractor.extract(
-                url,
-                steps=steps,
-                wait_for_nuxt=wait_for_nuxt,
-                use_combined_extraction=use_combined_extraction,
-                deserialize_nuxt3=deserialize_nuxt3,
-            )
-
-    return asyncio.run(_run())
-
     async def extract_from_current_page(self, use_combined_extraction: bool = True, deserialize_nuxt3: bool = True) -> Any:
         """
         Extract Nuxt data from the currently loaded page without navigation.
@@ -407,3 +360,201 @@ def extract_nuxt_data(
         
         page = pages[0]
         await execute_steps(page, [step], self.stealth_config)
+
+    async def extract_with_api_capture(
+        self,
+        url: str,
+        steps: Optional[List[NavigationStep]] = None,
+        api_filter: Optional[callable] = None,
+        wait_for_nuxt: bool = True,
+        wait_for_nuxt_timeout: Optional[int] = None,
+        use_combined_extraction: bool = True,
+        deserialize_nuxt3: bool = True,
+    ) -> tuple[Any, List[Dict[str, Any]]]:
+        """
+        Extract Nuxt data AND capture API responses during navigation.
+        
+        This is useful for calendar navigation or dynamic content where
+        window.__NUXT__ doesn't update but API calls contain the new data.
+        
+        The response handler is attached BEFORE navigation to ensure all
+        API calls are captured, including those during initial page load.
+        
+        Args:
+            url: Target page URL.
+            steps: Optional list of navigation steps to run before extraction.
+            api_filter: Optional function to filter which API responses to capture.
+                       Receives response object, returns True to capture.
+                       Default: captures all JSON responses from puntapi.com or graphql.
+            wait_for_nuxt: If True, wait for #__NUXT_DATA__ to be present (legacy mode only).
+            wait_for_nuxt_timeout: Timeout (ms) for Nuxt data. Default: self.timeout.
+            use_combined_extraction: If True, try both #__NUXT_DATA__ and window.__NUXT__.
+            deserialize_nuxt3: If True, deserialize Nuxt 3 reactive references.
+            
+        Returns:
+            Tuple of (nuxt_data, api_responses) where api_responses is a list of dicts
+            with 'url' and 'data' keys.
+            
+        Example:
+            async with NuxtDataExtractor() as extractor:
+                nuxt_data, api_responses = await extractor.extract_with_api_capture(
+                    "https://racenet.com.au/results/harness",
+                    steps=[
+                        NavigationStep.click("a.tab:has-text('Select Date')"),
+                        NavigationStep.select_date(
+                            target_date="2025-02-20",
+                            calendar_selector=".calendar",
+                            ...
+                        )
+                    ]
+                )
+                # Find specific API response
+                meetings_data = extractor.find_api_response(
+                    api_responses, 
+                    "meetingsGroupedByStartEndDate"
+                )
+        """
+        self._ensure_started()
+        timeout_ms = (
+            wait_for_nuxt_timeout if wait_for_nuxt_timeout is not None else self.timeout
+        )
+        
+        # Set up API response capture
+        api_responses: List[Dict[str, Any]] = []
+        
+        # Default filter: capture JSON responses from puntapi.com or graphql
+        if api_filter is None:
+            def default_filter(response) -> bool:
+                return (
+                    ("puntapi.com" in response.url or "graphql" in response.url.lower())
+                    and response.status == 200
+                )
+            api_filter = default_filter
+        
+        async def handle_response(response):
+            try:
+                if api_filter(response):
+                    try:
+                        data = await response.json()
+                        api_responses.append({"url": response.url, "data": data})
+                    except Exception:
+                        # Response might not be JSON
+                        pass
+            except Exception:
+                # Filter function might raise exception
+                pass
+        
+        # Get or create page and attach handler BEFORE navigation
+        pages = self._context.pages
+        if pages:
+            page = pages[0]
+        else:
+            page = await self._context.new_page()
+        
+        page.on("response", handle_response)
+        
+        try:
+            # Navigate to URL
+            await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout)
+            
+            # Execute navigation steps if provided
+            if steps:
+                await execute_steps(page, steps, self.stealth_config)
+            
+            # Extract Nuxt data
+            if use_combined_extraction:
+                nuxt_data = await self._extract_combined(page, timeout_ms, deserialize_nuxt3)
+            else:
+                nuxt_data = await self._extract_legacy(page, timeout_ms, wait_for_nuxt, deserialize_nuxt3)
+            
+            return nuxt_data, api_responses
+            
+        finally:
+            # Remove response handler to avoid memory leaks
+            try:
+                page.remove_listener("response", handle_response)
+            except Exception:
+                pass
+
+    def find_api_response(
+        self,
+        api_responses: List[Dict[str, Any]],
+        url_pattern: str,
+        fallback_to_first: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find a specific API response by URL pattern.
+        
+        Args:
+            api_responses: List of captured API responses from extract_with_api_capture().
+            url_pattern: String to search for in response URLs.
+            fallback_to_first: If True, return first response if pattern not found.
+            
+        Returns:
+            Response data dict (with 'url' and 'data' keys) or None if not found.
+            
+        Example:
+            meetings_response = extractor.find_api_response(
+                api_responses,
+                "meetingsGroupedByStartEndDate"
+            )
+            if meetings_response:
+                meetings_data = meetings_response["data"]
+        """
+        # Search for matching URL pattern
+        for response in api_responses:
+            if url_pattern in response["url"]:
+                return response
+        
+        # Fallback to first response if requested
+        if fallback_to_first and api_responses:
+            return api_responses[0]
+        
+        return None
+
+
+def extract_nuxt_data(
+    url: str,
+    steps: Optional[List[NavigationStep]] = None,
+    headless: bool = True,
+    timeout: int = 30000,
+    wait_for_nuxt: bool = True,
+    use_combined_extraction: bool = True,
+    deserialize_nuxt3: bool = True,
+    stealth_config: Optional[StealthConfig] = None,
+    proxy: Optional[Dict[str, str]] = None,
+) -> Any:
+    """
+    Convenience function: create an extractor, extract once, return data.
+
+    Args:
+        url: Target page URL.
+        steps: Optional navigation steps.
+        headless: Run browser headless.
+        timeout: Timeout in ms.
+        wait_for_nuxt: Wait for __NUXT_DATA__ element (legacy mode only).
+        use_combined_extraction: Try both #__NUXT_DATA__ and window.__NUXT__.
+        deserialize_nuxt3: Deserialize Nuxt 3 reactive references.
+        stealth_config: Configuration for anti-detection features.
+        proxy: Dictionary for proxy settings.
+
+    Returns:
+        Parsed Nuxt data.
+    """
+
+    async def _run() -> Any:
+        async with NuxtDataExtractor(
+            headless=headless,
+            timeout=timeout,
+            stealth_config=stealth_config,
+            proxy=proxy,
+        ) as extractor:
+            return await extractor.extract(
+                url,
+                steps=steps,
+                wait_for_nuxt=wait_for_nuxt,
+                use_combined_extraction=use_combined_extraction,
+                deserialize_nuxt3=deserialize_nuxt3,
+            )
+
+    return asyncio.run(_run())

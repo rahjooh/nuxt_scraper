@@ -84,3 +84,67 @@ def run_async(coro: Coroutine[Any, Any, T]) -> T:
     Uses asyncio.run(); creates a new event loop.
     """
     return asyncio.run(coro)
+
+
+def validate_meeting_date(
+    data: dict,
+    expected_date: str,
+    date_field: str = "meetingDateLocal"
+) -> bool:
+    """
+    Validate that extracted data matches expected date.
+    
+    Handles both "YYYY-MM-DD" and ISO datetime formats ("YYYY-MM-DDTHH:MM:SS.000Z").
+    Supports both API response and __NUXT__ data structures.
+    
+    Args:
+        data: Extracted data (API response or __NUXT__ format).
+        expected_date: Expected date in YYYY-MM-DD format.
+        date_field: Field name containing the date (default: "meetingDateLocal").
+        
+    Returns:
+        True if date matches, False otherwise.
+        
+    Example:
+        # With API response
+        nuxt_data, api_responses = await extractor.extract_with_api_capture(url, steps)
+        meetings_response = extractor.find_api_response(api_responses, "meetingsGrouped")
+        if meetings_response and validate_meeting_date(meetings_response["data"], "2025-02-20"):
+            print("Date validation passed!")
+            
+        # With __NUXT__ data
+        nuxt_data = await extractor.extract(url)
+        if validate_meeting_date(nuxt_data, "2025-02-20"):
+            print("Date validation passed!")
+    """
+    try:
+        # Handle API response format
+        if isinstance(data, dict) and "data" in data:
+            api_data = data.get("data", {})
+            
+            # Try API response format (meetingsGrouped)
+            if "meetingsGrouped" in api_data:
+                for group in api_data["meetingsGrouped"]:
+                    meetings_in_group = group.get("meetings", [])
+                    if meetings_in_group:
+                        first_meeting = meetings_in_group[0]
+                        meeting_date = first_meeting.get(date_field, "")
+                        # Extract just the date part if it's an ISO datetime string
+                        meeting_date_only = meeting_date.split("T")[0] if "T" in meeting_date else meeting_date
+                        return meeting_date_only == expected_date
+            
+            # Try __NUXT__ format
+            data_array = data.get("data", [])
+            if isinstance(data_array, list) and len(data_array) > 0:
+                first_item = data_array[0]
+                if isinstance(first_item, dict) and "meetings" in first_item:
+                    for group in first_item.get("meetings", []):
+                        for meeting in group.get("meetings", []):
+                            meeting_date = meeting.get(date_field, "")
+                            # Extract just the date part if it's an ISO datetime string
+                            meeting_date_only = meeting_date.split("T")[0] if "T" in meeting_date else meeting_date
+                            return meeting_date_only == expected_date
+        
+        return False
+    except Exception:
+        return False

@@ -271,3 +271,214 @@ class TestConfigurationValidation:
         
         assert config3.typing_speed_wpm == 100
         assert config1.typing_speed_wpm == 50  # Original unchanged
+
+
+class TestValidateMeetingDate:
+    """Test validate_meeting_date utility function."""
+    
+    def test_validate_meeting_date_iso_format(self) -> None:
+        """Test validation with ISO datetime format (YYYY-MM-DDTHH:MM:SS.000Z)."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # API response format with ISO datetime
+        api_data = {
+            "data": {
+                "meetingsGrouped": [
+                    {
+                        "meetings": [
+                            {
+                                "meetingDateLocal": "2025-02-20T00:00:00.000Z",
+                                "name": "Test Meeting"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        
+        # Should match despite time component
+        assert validate_meeting_date(api_data, "2025-02-20") is True
+        
+        # Should not match different date
+        assert validate_meeting_date(api_data, "2025-02-21") is False
+    
+    def test_validate_meeting_date_simple_format(self) -> None:
+        """Test validation with simple date format (YYYY-MM-DD)."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # API response format with simple date
+        api_data = {
+            "data": {
+                "meetingsGrouped": [
+                    {
+                        "meetings": [
+                            {
+                                "meetingDateLocal": "2025-02-20",
+                                "name": "Test Meeting"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        
+        assert validate_meeting_date(api_data, "2025-02-20") is True
+        assert validate_meeting_date(api_data, "2025-02-21") is False
+    
+    def test_validate_meeting_date_nuxt_format(self) -> None:
+        """Test validation with __NUXT__ data structure."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # __NUXT__ format
+        nuxt_data = {
+            "data": [
+                {
+                    "meetings": [
+                        {
+                            "meetings": [
+                                {
+                                    "meetingDateLocal": "2025-02-20",
+                                    "name": "Test Meeting"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        assert validate_meeting_date(nuxt_data, "2025-02-20") is True
+        assert validate_meeting_date(nuxt_data, "2025-02-21") is False
+    
+    def test_validate_meeting_date_custom_field(self) -> None:
+        """Test validation with custom date field name."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # API response with custom date field
+        api_data = {
+            "data": {
+                "meetingsGrouped": [
+                    {
+                        "meetings": [
+                            {
+                                "customDateField": "2025-02-20T00:00:00.000Z",
+                                "name": "Test Meeting"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        
+        # Should fail with default field name
+        assert validate_meeting_date(api_data, "2025-02-20") is False
+        
+        # Should succeed with custom field name
+        assert validate_meeting_date(api_data, "2025-02-20", date_field="customDateField") is True
+    
+    def test_validate_meeting_date_empty_data(self) -> None:
+        """Test validation with empty or invalid data."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # Empty dict
+        assert validate_meeting_date({}, "2025-02-20") is False
+        
+        # Missing data key
+        assert validate_meeting_date({"other": "value"}, "2025-02-20") is False
+        
+        # Empty meetings
+        empty_api_data = {
+            "data": {
+                "meetingsGrouped": []
+            }
+        }
+        assert validate_meeting_date(empty_api_data, "2025-02-20") is False
+        
+        # Empty __NUXT__ data
+        empty_nuxt_data = {
+            "data": []
+        }
+        assert validate_meeting_date(empty_nuxt_data, "2025-02-20") is False
+    
+    def test_validate_meeting_date_malformed_data(self) -> None:
+        """Test validation with malformed data structures."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # Malformed API data
+        malformed_api = {
+            "data": {
+                "meetingsGrouped": [
+                    {
+                        "meetings": "not a list"  # Should be a list
+                    }
+                ]
+            }
+        }
+        assert validate_meeting_date(malformed_api, "2025-02-20") is False
+        
+        # Malformed __NUXT__ data
+        malformed_nuxt = {
+            "data": "not a list"  # Should be a list
+        }
+        assert validate_meeting_date(malformed_nuxt, "2025-02-20") is False
+    
+    def test_validate_meeting_date_multiple_meetings(self) -> None:
+        """Test validation with multiple meetings (should check first)."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # Multiple meetings, first one matches
+        api_data = {
+            "data": {
+                "meetingsGrouped": [
+                    {
+                        "meetings": [
+                            {"meetingDateLocal": "2025-02-20", "name": "Meeting 1"},
+                            {"meetingDateLocal": "2025-02-21", "name": "Meeting 2"},
+                        ]
+                    }
+                ]
+            }
+        }
+        
+        # Should validate against first meeting
+        assert validate_meeting_date(api_data, "2025-02-20") is True
+        assert validate_meeting_date(api_data, "2025-02-21") is False
+    
+    def test_validate_meeting_date_different_iso_formats(self) -> None:
+        """Test validation with different ISO datetime variations."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # Test various ISO formats
+        iso_formats = [
+            "2025-02-20T00:00:00.000Z",
+            "2025-02-20T12:30:45.123Z",
+            "2025-02-20T23:59:59.999Z",
+        ]
+        
+        for iso_date in iso_formats:
+            api_data = {
+                "data": {
+                    "meetingsGrouped": [
+                        {
+                            "meetings": [
+                                {"meetingDateLocal": iso_date, "name": "Test"}
+                            ]
+                        }
+                    ]
+                }
+            }
+            
+            # All should match the date part
+            assert validate_meeting_date(api_data, "2025-02-20") is True
+    
+    def test_validate_meeting_date_exception_handling(self) -> None:
+        """Test that validation handles exceptions gracefully."""
+        from nuxt_scraper.utils import validate_meeting_date
+        
+        # None input
+        assert validate_meeting_date(None, "2025-02-20") is False
+        
+        # Non-dict input
+        assert validate_meeting_date("not a dict", "2025-02-20") is False
+        assert validate_meeting_date(123, "2025-02-20") is False
+        assert validate_meeting_date([], "2025-02-20") is False

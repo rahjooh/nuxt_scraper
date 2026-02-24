@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unittest.mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -297,3 +298,162 @@ async def test_extract_sync_calls_extract_async(
         result = extractor.extract_sync("https://example.com")
         mock_extract.assert_called_once()
         assert result == parse_nuxt_json(sample_nuxt_json)
+
+
+@pytest.mark.asyncio
+async def test_extract_with_api_capture_returns_tuple(
+    mock_playwright: MagicMock,
+    mock_context: MagicMock,
+    sample_nuxt_json: str,
+    mock_anti_detection_externals,
+) -> None:
+    """Test that extract_with_api_capture returns (nuxt_data, api_responses) tuple."""
+    mock_page = mock_context.new_page.return_value
+    mock_page.evaluate.return_value = {
+        "data": sample_nuxt_json,
+        "method": "element",
+        "raw": sample_nuxt_json
+    }
+    mock_page.on = MagicMock()  # Mock the response handler attachment
+    mock_page.remove_listener = MagicMock()
+    mock_context.pages = [mock_page]
+    
+    with patch("nuxt_scraper.extractor.async_playwright") as p:
+        p.return_value.start = AsyncMock(return_value=mock_playwright)
+        
+        async with NuxtDataExtractor() as extractor:
+            nuxt_data, api_responses = await extractor.extract_with_api_capture(
+                "https://example.com"
+            )
+            
+            # Should return tuple
+            assert isinstance(api_responses, list)
+            assert nuxt_data is not None
+            
+            # Should have attached response handler
+            mock_page.on.assert_called_once_with("response", unittest.mock.ANY)
+
+
+@pytest.mark.asyncio
+async def test_extract_with_api_capture_custom_filter(
+    mock_playwright: MagicMock,
+    mock_context: MagicMock,
+    sample_nuxt_json: str,
+    mock_anti_detection_externals,
+) -> None:
+    """Test that extract_with_api_capture accepts custom API filter."""
+    mock_page = mock_context.new_page.return_value
+    mock_page.evaluate.return_value = {
+        "data": sample_nuxt_json,
+        "method": "element",
+        "raw": sample_nuxt_json
+    }
+    mock_page.on = MagicMock()
+    mock_page.remove_listener = MagicMock()
+    mock_context.pages = [mock_page]
+    
+    # Custom filter function
+    def custom_filter(response):
+        return "custom" in response.url
+    
+    with patch("nuxt_scraper.extractor.async_playwright") as p:
+        p.return_value.start = AsyncMock(return_value=mock_playwright)
+        
+        async with NuxtDataExtractor() as extractor:
+            nuxt_data, api_responses = await extractor.extract_with_api_capture(
+                "https://example.com",
+                api_filter=custom_filter
+            )
+            
+            # Should accept custom filter without error
+            assert isinstance(api_responses, list)
+
+
+@pytest.mark.asyncio
+async def test_extract_with_api_capture_with_steps(
+    mock_playwright: MagicMock,
+    mock_context: MagicMock,
+    sample_nuxt_json: str,
+    mock_anti_detection_externals,
+) -> None:
+    """Test that extract_with_api_capture executes navigation steps."""
+    mock_page = mock_context.new_page.return_value
+    mock_page.evaluate.return_value = {
+        "data": sample_nuxt_json,
+        "method": "element",
+        "raw": sample_nuxt_json
+    }
+    mock_page.on = MagicMock()
+    mock_page.remove_listener = MagicMock()
+    mock_context.pages = [mock_page]
+    
+    with patch("nuxt_scraper.extractor.async_playwright") as p:
+        p.return_value.start = AsyncMock(return_value=mock_playwright)
+        
+        mock_execute_steps = AsyncMock()
+        with patch("nuxt_scraper.extractor.execute_steps", new=mock_execute_steps):
+            test_steps = [NavigationStep.click("button")]
+            
+            async with NuxtDataExtractor() as extractor:
+                await extractor.extract_with_api_capture(
+                    "https://example.com",
+                    steps=test_steps
+                )
+                
+                # Should execute steps
+                mock_execute_steps.assert_called_once()
+
+
+def test_find_api_response_by_url_pattern() -> None:
+    """Test finding API response by URL pattern."""
+    api_responses = [
+        {"url": "https://api.example.com/meetings", "data": {"meetings": []}},
+        {"url": "https://api.example.com/races", "data": {"races": []}},
+        {"url": "https://api.example.com/results", "data": {"results": []}},
+    ]
+    
+    extractor = NuxtDataExtractor()
+    
+    # Find by pattern
+    result = extractor.find_api_response(api_responses, "meetings")
+    assert result is not None
+    assert result["url"] == "https://api.example.com/meetings"
+    assert "meetings" in result["data"]
+    
+    # Pattern not found
+    result = extractor.find_api_response(api_responses, "nonexistent")
+    assert result is None
+
+
+def test_find_api_response_with_fallback() -> None:
+    """Test finding API response with fallback to first."""
+    api_responses = [
+        {"url": "https://api.example.com/first", "data": {"first": True}},
+        {"url": "https://api.example.com/second", "data": {"second": True}},
+    ]
+    
+    extractor = NuxtDataExtractor()
+    
+    # Pattern not found, but fallback enabled
+    result = extractor.find_api_response(
+        api_responses,
+        "nonexistent",
+        fallback_to_first=True
+    )
+    assert result is not None
+    assert result["url"] == "https://api.example.com/first"
+    
+    # Empty list with fallback
+    result = extractor.find_api_response([], "pattern", fallback_to_first=True)
+    assert result is None
+
+
+def test_find_api_response_empty_list() -> None:
+    """Test finding API response in empty list."""
+    extractor = NuxtDataExtractor()
+    
+    result = extractor.find_api_response([], "pattern")
+    assert result is None
+    
+    result = extractor.find_api_response([], "pattern", fallback_to_first=True)
+    assert result is None

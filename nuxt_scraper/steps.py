@@ -194,6 +194,7 @@ async def _handle_select_date(
 ) -> None:
     """
     Handles the selection of a date from a calendar pop-up.
+    Uses robust selector fallbacks and month parsing similar to legacy implementations.
     """
     if not all([
         step.target_date,
@@ -205,57 +206,153 @@ async def _handle_select_date(
     ]):
         raise NavigationStepFailed(step, ValueError("Missing required date selection parameters"))
 
+    # Parse target date
     target_datetime = datetime.strptime(step.target_date, "%Y-%m-%d")
-    current_month_year_selector = step.month_year_display_selector
-    prev_button_selector = step.prev_month_selector
-    next_button_selector = step.next_month_selector
-    date_cell_base_selector = step.date_cell_selector
+    ty, tm, td = target_datetime.year, target_datetime.month, target_datetime.day
+    day_str = str(td)
     
-    # Ensure calendar is visible
-    await page.wait_for_selector(step.calendar_selector, timeout=step.timeout)
+    # Month names for comparison (full and abbreviated)
+    mn_full = ["", "January", "February", "March", "April", "May", "June", 
+               "July", "August", "September", "October", "November", "December"]
+    mn_abbrev = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    tm_full, tm_abbrev = mn_full[tm], mn_abbrev[tm]
+    
+    # Split selectors into fallback lists (support comma-separated selectors)
+    month_year_selectors = [s.strip() for s in step.month_year_display_selector.split(",")]
+    prev_selectors = [s.strip() for s in step.prev_month_selector.split(",")]
+    next_selectors = [s.strip() for s in step.next_month_selector.split(",")]
+    
+    # Try to find calendar - use visibility check instead of strict wait_for_selector
+    calendar_found = False
+    for sel in [s.strip() for s in step.calendar_selector.split(",")]:
+        try:
+            locator = page.locator(sel).first
+            if await locator.is_visible(timeout=500):
+                calendar_found = True
+                break
+        except Exception:
+            continue
+    
+    if not calendar_found:
+        raise NavigationStepFailed(step, ValueError("Calendar not visible"))
+    
     if stealth_config.enabled and stealth_config.random_delays:
-        await human_delay(config.min_action_delay_ms, config.max_action_delay_ms)
+        await human_delay(stealth_config.min_action_delay_ms, stealth_config.max_action_delay_ms)
 
-    # Iterate to find the correct month
-    for _ in range(24): # Max 24 months (2 years) to prevent infinite loop
-        current_month_year_text = await page.locator(current_month_year_selector).text_content()
-        if not current_month_year_text:
-            raise NavigationStepFailed(step, ValueError("Could not read current month/year display"))
-
-        current_display_date = datetime.strptime(current_month_year_text.strip(), "%b %Y")
-
-        if (
-            current_display_date.year == target_datetime.year
-            and current_display_date.month == target_datetime.month
-        ):
-            break # Correct month found
-
-        if target_datetime < current_display_date:
-            await page.click(prev_button_selector)
-        else:
-            await page.click(next_button_selector)
+    # Navigate to correct month/year (up to 120 attempts like legacy code)
+    for attempt in range(120):
+        cur_m, cur_y = "", 0
         
+        # Try multiple selectors for month/year display
+        for sel in month_year_selectors:
+            try:
+                locator = page.locator(sel).first
+                if await locator.is_visible(timeout=500):
+                    text = await locator.text_content()
+                    if text:
+                        parts = text.strip().split()
+                        if len(parts) >= 2:
+                            cur_m = parts[0]
+                            try:
+                                cur_y = int(parts[-1])
+                            except ValueError:
+                                continue
+                            break
+            except Exception:
+                continue
+        
+        if not cur_m or not cur_y:
+            # Could not read month/year, try to continue
+            if attempt < 5:  # Give it a few tries
+                await human_delay(200, 500)
+                continue
+            else:
+                raise NavigationStepFailed(step, ValueError("Could not read current month/year display"))
+        
+        # Check if we're at the target month
+        if cur_m in (tm_full, tm_abbrev) and cur_y == ty:
+            break  # Correct month found
+        
+        # Calculate which direction to navigate
+        cur_num = next((i for i, n in enumerate(mn_full) if n == cur_m), 0) or \
+                  next((i for i, n in enumerate(mn_abbrev) if n == cur_m), 0)
+        if cur_num == 0:
+            raise NavigationStepFailed(step, ValueError(f"Could not parse month name: {cur_m}"))
+        
+        cur_tot = cur_y * 12 + cur_num
+        tgt_tot = ty * 12 + tm
+        
+        # Click prev or next button with fallback selectors
+        button_clicked = False
+        button_selectors = prev_selectors if cur_tot > tgt_tot else next_selectors
+        
+        for sel in button_selectors:
+            try:
+                locator = page.locator(sel).first
+                if await locator.is_visible(timeout=500):
+                    await locator.click(force=True)
+                    button_clicked = True
+                    break
+            except Exception:
+                continue
+        
+        if not button_clicked:
+            raise NavigationStepFailed(step, ValueError("Could not find or click prev/next button"))
+        
+        # Small delay after navigation
         if stealth_config.enabled and stealth_config.random_delays:
-            await human_delay(
-                stealth_config.min_action_delay_ms // 2,
-                stealth_config.max_action_delay_ms // 2,
-            )
+            await human_delay(200, 500)
+        else:
+            await human_delay(200, 500)  # Always add small delay for calendar updates
 
-    else: # Loop exhausted, date not found after 24 attempts
+    else:  # Loop exhausted, date not found after 120 attempts
         raise DateNotFoundInCalendarError(step.target_date, "Target month not reached in calendar")
 
     # Month is now correct, find and click the day
-    target_day_selector = f"{date_cell_base_selector}:has-text(\"{target_datetime.day}\")"
-    day_locator = page.locator(target_day_selector)
+    # Try multiple selector strategies like legacy code
+    day_clicked = False
     
-    try:
-        await day_locator.wait_for(state="visible", timeout=step.timeout)
-        if stealth_config.enabled and stealth_config.mouse_movement:
-            await simulate_mouse_movement(page, target_day_selector)
-            await human_delay(50, 200)
-        await day_locator.click()
-    except Exception as e:
-        raise DateNotFoundInCalendarError(step.target_date, f"Failed to click day {target_datetime.day}: {e!s}") from e
+    # Build day selectors - try exact text match first, then has-text
+    day_selectors = [
+        f'span.cell.day:text-is("{day_str}")',
+        f'[class*="day"]:has-text("{day_str}")'
+    ]
+    
+    # Also try with the base selector if it's different
+    if step.date_cell_selector not in day_selectors[0] and step.date_cell_selector not in day_selectors[1]:
+        day_selectors.append(f'{step.date_cell_selector}:has-text("{day_str}")')
+    
+    for selector in day_selectors:
+        try:
+            cells = page.locator(selector)
+            count = await cells.count()
+            for i in range(count):
+                cell = cells.nth(i)
+                try:
+                    txt = await cell.text_content()
+                    if txt and txt.strip() == day_str and await cell.is_visible(timeout=500):
+                        if stealth_config.enabled and stealth_config.mouse_movement:
+                            # Get selector for mouse movement simulation
+                            cell_selector = await cell.evaluate("el => el.className || el.tagName")
+                            if cell_selector:
+                                await simulate_mouse_movement(page, selector)
+                                await human_delay(50, 200)
+                        await cell.click(force=True)
+                        day_clicked = True
+                        break
+                except Exception:
+                    continue
+            if day_clicked:
+                break
+        except Exception:
+            continue
+    
+    if not day_clicked:
+        raise DateNotFoundInCalendarError(step.target_date, f"Failed to find or click day {day_str}")
+    
+    # Small delay after day click
+    await human_delay(500, 1000)
 
     # Optionally click View Results button
     if step.view_results_selector:
@@ -263,7 +360,28 @@ async def _handle_select_date(
             await human_delay(
                 stealth_config.min_action_delay_ms, stealth_config.max_action_delay_ms
             )
-        await page.click(step.view_results_selector, timeout=step.timeout)
+        else:
+            await human_delay(1000, 2000)
+        
+        # Try to find and click view results button
+        view_results_found = False
+        for sel in [s.strip() for s in step.view_results_selector.split(",")]:
+            try:
+                locator = page.locator(sel).first
+                if await locator.is_visible(timeout=2000):
+                    await locator.click(force=True, timeout=step.timeout)
+                    view_results_found = True
+                    break
+            except Exception:
+                continue
+        
+        if view_results_found:
+            # Wait for page to load after clicking view results
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
+            await human_delay(2000, 3000)
 
 
 async def execute_step(page: Page, step: NavigationStep, stealth_config: Optional[StealthConfig] = None) -> None:

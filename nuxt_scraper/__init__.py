@@ -30,7 +30,7 @@ from nuxt_scraper.exceptions import (
 from nuxt_scraper.extractor import NuxtDataExtractor, extract_nuxt_data
 from nuxt_scraper.parser import parse_nuxt_json, parse_nuxt_result, deserialize_nuxt3_data
 from nuxt_scraper.steps import NavigationStep, StepType, execute_step, execute_steps
-from nuxt_scraper.utils import StealthConfig
+from nuxt_scraper.utils import StealthConfig, validate_meeting_date
 from nuxt_scraper.anti_detection.delays import human_delay
 from nuxt_scraper.anti_detection.mouse_movement import simulate_mouse_movement
 from nuxt_scraper.anti_detection.typing import human_type
@@ -63,6 +63,7 @@ __all__ = [
     "ProxyError",
     "DateNotFoundInCalendarError",
     "StealthConfig",
+    "validate_meeting_date",
     "human_delay",
     "simulate_mouse_movement",
     "human_type",
@@ -73,4 +74,4 @@ __all__ = [
     "STEALTH_SCRIPTS",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
