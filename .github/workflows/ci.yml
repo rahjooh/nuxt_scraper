@@ -30,8 +30,8 @@ jobs:
     
     - name: Run linting
       run: |
-        black --check nuxtflow tests examples
-        ruff check nuxtflow tests examples
+        black --check nuxt_scraper tests examples
+        ruff check nuxt_scraper tests examples
     
     - name: Run tests
       run: |

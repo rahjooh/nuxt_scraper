@@ -28,7 +28,7 @@ from nuxt_scraper.exceptions import (
     ProxyError,
 )
 from nuxt_scraper.extractor import NuxtDataExtractor, extract_nuxt_data
-from nuxt_scraper.parser import parse_nuxt_json
+from nuxt_scraper.parser import parse_nuxt_json, parse_nuxt_result, deserialize_nuxt3_data
 from nuxt_scraper.steps import NavigationStep, StepType, execute_step, execute_steps
 from nuxt_scraper.utils import StealthConfig
 from nuxt_scraper.anti_detection.delays import human_delay
@@ -52,6 +52,8 @@ __all__ = [
     "execute_step",
     "execute_steps",
     "parse_nuxt_json",
+    "parse_nuxt_result",
+    "deserialize_nuxt3_data",
     "NuxtFlowException",
     "NuxtDataNotFound",
     "NavigationStepFailed",
@@ -71,4 +73,4 @@ __all__ = [
     "STEALTH_SCRIPTS",
 ]
 
-__version__ = "0.2.3"
+__version__ = "0.3.0"

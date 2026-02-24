@@ -23,9 +23,13 @@ from nuxt_scraper.exceptions import (
 )
 from nuxt_scraper.parser import (
     EXTRACT_NUXT_DATA_SCRIPT,
+    EXTRACT_NUXT_COMBINED_SCRIPT,
     NUXT_DATA_ELEMENT_ID,
     parse_nuxt_json,
+    parse_nuxt_result,
     validate_extracted_result,
+    validate_combined_result,
+    deserialize_nuxt3_data,
 )
 from nuxt_scraper.steps import NavigationStep, execute_steps
 from nuxt_scraper.utils import StealthConfig
@@ -183,15 +187,19 @@ class NuxtDataExtractor:
         steps: Optional[List[NavigationStep]] = None,
         wait_for_nuxt: bool = True,
         wait_for_nuxt_timeout: Optional[int] = None,
+        use_combined_extraction: bool = True,
+        deserialize_nuxt3: bool = True,
     ) -> Any:
         """
-        Navigate to the URL, optionally run steps, then extract __NUXT_DATA__.
+        Navigate to the URL, optionally run steps, then extract Nuxt data.
 
         Args:
             url: Target page URL.
             steps: Optional list of navigation steps to run before extraction.
-            wait_for_nuxt: If True, wait for #__NUXT_DATA__ to be present.
+            wait_for_nuxt: If True, wait for #__NUXT_DATA__ to be present (legacy mode only).
             wait_for_nuxt_timeout: Timeout (ms) for Nuxt data. Default: self.timeout.
+            use_combined_extraction: If True, try both #__NUXT_DATA__ and window.__NUXT__.
+            deserialize_nuxt3: If True, deserialize Nuxt 3 reactive references.
 
         Returns:
             Parsed Nuxt data (typically a dict).
@@ -208,21 +216,71 @@ class NuxtDataExtractor:
             if steps:
                 await execute_steps(page, steps, self.stealth_config)
 
-            if wait_for_nuxt:
-                try:
-                    await page.wait_for_selector(
-                        f"#{NUXT_DATA_ELEMENT_ID}", timeout=timeout_ms
-                    )
-                except Exception as e:
-                    raise ExtractionTimeout(
-                        f"Timed out waiting for #{NUXT_DATA_ELEMENT_ID}: {e!s}"
-                    ) from e
-
-            raw = await page.evaluate(EXTRACT_NUXT_DATA_SCRIPT)
-            validate_extracted_result(raw)
-            return parse_nuxt_json(raw)
+            if use_combined_extraction:
+                # New combined approach: try both methods
+                return await self._extract_combined(page, timeout_ms, deserialize_nuxt3)
+            else:
+                # Legacy approach: only try #__NUXT_DATA__ element
+                return await self._extract_legacy(page, timeout_ms, wait_for_nuxt, deserialize_nuxt3)
         finally:
             await page.close()
+
+    async def _extract_combined(self, page, timeout_ms: int, deserialize_nuxt3: bool = True) -> Any:
+        """
+        Extract Nuxt data using the combined approach (both element and window methods).
+        
+        Args:
+            page: Playwright page object
+            timeout_ms: Timeout in milliseconds
+            deserialize_nuxt3: Whether to deserialize Nuxt 3 reactive references
+            
+        Returns:
+            Parsed Nuxt data
+        """
+        # Wait a bit for the page to fully load
+        await asyncio.sleep(2)
+        
+        # Try the combined extraction script
+        extraction_result = await page.evaluate(EXTRACT_NUXT_COMBINED_SCRIPT)
+        
+        # If no data found immediately, wait a bit more and try again
+        if not extraction_result or not extraction_result.get('data'):
+            logger.debug("No Nuxt data found on first attempt, waiting and retrying...")
+            await asyncio.sleep(3)
+            extraction_result = await page.evaluate(EXTRACT_NUXT_COMBINED_SCRIPT)
+        
+        validate_combined_result(extraction_result)
+        data, method = parse_nuxt_result(extraction_result, deserialize_nuxt3=deserialize_nuxt3)
+        
+        logger.info(f"Successfully extracted Nuxt data using {method} method")
+        return data
+
+    async def _extract_legacy(self, page, timeout_ms: int, wait_for_nuxt: bool, deserialize_nuxt3: bool = True) -> Any:
+        """
+        Extract Nuxt data using the legacy approach (only #__NUXT_DATA__ element).
+        
+        Args:
+            page: Playwright page object
+            timeout_ms: Timeout in milliseconds
+            wait_for_nuxt: Whether to wait for the element
+            deserialize_nuxt3: Whether to deserialize Nuxt 3 reactive references
+            
+        Returns:
+            Parsed Nuxt data
+        """
+        if wait_for_nuxt:
+            try:
+                await page.wait_for_selector(
+                    f"#{NUXT_DATA_ELEMENT_ID}", timeout=timeout_ms
+                )
+            except Exception as e:
+                raise ExtractionTimeout(
+                    f"Timed out waiting for #{NUXT_DATA_ELEMENT_ID}: {e!s}"
+                ) from e
+
+        raw = await page.evaluate(EXTRACT_NUXT_DATA_SCRIPT)
+        validate_extracted_result(raw)
+        return parse_nuxt_json(raw, deserialize_nuxt3=deserialize_nuxt3)
 
     def extract_sync(
         self,
@@ -240,6 +298,8 @@ class NuxtDataExtractor:
                 steps=steps,
                 wait_for_nuxt=wait_for_nuxt,
                 wait_for_nuxt_timeout=wait_for_nuxt_timeout,
+                use_combined_extraction=True,
+                deserialize_nuxt3=True,
             )
         )
 
@@ -250,6 +310,8 @@ def extract_nuxt_data(
     headless: bool = True,
     timeout: int = 30000,
     wait_for_nuxt: bool = True,
+    use_combined_extraction: bool = True,
+    deserialize_nuxt3: bool = True,
     stealth_config: Optional[StealthConfig] = None,
     proxy: Optional[Dict[str, str]] = None,
 ) -> Any:
@@ -261,7 +323,9 @@ def extract_nuxt_data(
         steps: Optional navigation steps.
         headless: Run browser headless.
         timeout: Timeout in ms.
-        wait_for_nuxt: Wait for __NUXT_DATA__ element.
+        wait_for_nuxt: Wait for __NUXT_DATA__ element (legacy mode only).
+        use_combined_extraction: Try both #__NUXT_DATA__ and window.__NUXT__.
+        deserialize_nuxt3: Deserialize Nuxt 3 reactive references.
         stealth_config: Configuration for anti-detection features.
         proxy: Dictionary for proxy settings.
 
@@ -280,6 +344,66 @@ def extract_nuxt_data(
                 url,
                 steps=steps,
                 wait_for_nuxt=wait_for_nuxt,
+                use_combined_extraction=use_combined_extraction,
+                deserialize_nuxt3=deserialize_nuxt3,
             )
 
     return asyncio.run(_run())
+
+    async def extract_from_current_page(self, use_combined_extraction: bool = True, deserialize_nuxt3: bool = True) -> Any:
+        """
+        Extract Nuxt data from the currently loaded page without navigation.
+        
+        Args:
+            use_combined_extraction: If True, try both #__NUXT_DATA__ and window.__NUXT__.
+            deserialize_nuxt3: If True, deserialize Nuxt 3 reactive references.
+            
+        Returns:
+            Parsed Nuxt data
+        """
+        self._ensure_started()
+        
+        # Get the current page (assuming there's one active)
+        pages = self._context.pages
+        if not pages:
+            raise BrowserError("No active pages found")
+        
+        page = pages[0]  # Use the first/main page
+        
+        if use_combined_extraction:
+            return await self._extract_combined(page, self.timeout, deserialize_nuxt3)
+        else:
+            return await self._extract_legacy(page, self.timeout, wait_for_nuxt=False, deserialize_nuxt3=deserialize_nuxt3)
+
+    async def navigate(self, url: str) -> None:
+        """
+        Navigate to a URL without extracting data.
+        
+        Args:
+            url: Target page URL
+        """
+        self._ensure_started()
+        
+        pages = self._context.pages
+        if pages:
+            page = pages[0]
+        else:
+            page = await self._context.new_page()
+        
+        await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout)
+
+    async def execute_step(self, step: NavigationStep) -> None:
+        """
+        Execute a single navigation step on the current page.
+        
+        Args:
+            step: Navigation step to execute
+        """
+        self._ensure_started()
+        
+        pages = self._context.pages
+        if not pages:
+            raise BrowserError("No active pages found")
+        
+        page = pages[0]
+        await execute_steps(page, [step], self.stealth_config)

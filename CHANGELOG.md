@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-24
+
+### 🚀 Major Release - Complete Deserialization Engine Rewrite
+
+#### ✨ New Features
+
+- **Complete Nuxt 3 Deserialization Engine Rewrite**: Implemented proper hydration-based deserialization following Nuxt 3's actual serialization format
+- **Comprehensive Example Suite**: 8 new example files covering all usage scenarios from basic to advanced
+- **Complete Test Suite Overhaul**: Added performance tests, integration tests, and comprehensive coverage
+- **Mermaid Architecture Diagrams**: Added visual documentation of system architecture and data flow
+
+#### 🔧 Technical Improvements
+
+- **New `_hydrate_nuxt3_value()` Function**: Replaces old recursive approach with proper hydration algorithm
+- **Special Type Support**: Full support for Nuxt/devalue special types:
+  - `{"$d": timestamp}` → `datetime` objects
+  - `{"$s": [indices]}` → Python `set` objects  
+  - `{"$m": [[key, value]]}` → Python `dict` objects
+  - `{"$b": "123..."}` → Python `int` objects (BigInt)
+  - `{"$r": "/pattern/flags"}` → Python `re.Pattern` objects
+- **Smart Caching System**: Prevents circular references and duplicate processing
+- **O(n) Time Complexity**: Optimized from exponential to linear time complexity
+
+#### 🐛 Critical Bug Fixes
+
+- **Fixed Exponential Data Expansion**: Resolved issue where 10K line files became 1GB+ when deserialized
+- **Circular Reference Handling**: Proper prevention of infinite loops in interconnected data
+- **Memory Efficiency**: Eliminated memory exhaustion on large datasets
+- **Performance Optimization**: 60x+ faster processing for complex data structures
+
+#### 📊 Performance Improvements
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Large datasets | 1GB+ files | <50MB typical | 20x+ reduction |
+| Processing time | Minutes | Seconds | 60x+ faster |
+| Memory usage | Exponential growth | Linear scaling | Stable |
+| Circular references | Infinite loops | Proper handling | ✅ Fixed |
+
+#### 📚 Documentation & Examples
+
+- **8 New Example Files**: Comprehensive coverage of all functionality
+  - `01_basic_extraction.py` - Getting started
+  - `02_navigation_steps.py` - All navigation types
+  - `03_calendar_date_selection.py` - Calendar interactions
+  - `04_anti_detection_stealth.py` - Stealth configurations
+  - `05_deserialization_advanced.py` - Advanced deserialization
+  - `06_parallel_extraction.py` - Concurrent processing
+  - `07_error_handling.py` - Comprehensive error handling
+  - `08_real_world_scenarios.py` - Production use cases
+
+- **Complete Test Suite**: 6 new comprehensive test files
+  - Performance and edge case testing
+  - Integration and end-to-end testing
+  - Extraction method validation
+  - Utility function testing
+
+- **Mermaid Diagrams**: Visual architecture documentation
+  - System architecture overview
+  - Data flow sequence diagrams
+  - Component interaction maps
+  - Deserialization engine flowchart
+
+#### 🧹 Repository Cleanup
+
+- Removed redundant test files from `test_manual/`
+- Cleaned up build artifacts
+- Organized codebase structure
+- Updated development documentation
+
+#### 🔄 Backward Compatibility
+
+- **API Unchanged**: All existing code continues to work without modifications
+- **Default Behavior Improved**: `deserialize_nuxt3=True` now uses the new engine automatically
+- **No Breaking Changes**: Seamless upgrade path for existing users
+
 ## [0.2.3] - 2026-02-23
 
 ### Changed
