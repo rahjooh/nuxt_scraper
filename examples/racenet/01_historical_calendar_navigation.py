@@ -114,15 +114,104 @@ async def extract_historical_data(target_date: str) -> dict:
             return nuxt_data
 
 
+def extract_race_urls(meetings_data: dict, target_date: str) -> list:
+    """Extract race URLs from meetings data.
+    
+    Args:
+        meetings_data: Extracted meetings data
+        target_date: Target date in YYYY-MM-DD format
+        
+    Returns:
+        List of race dictionaries with url, name, and num
+    """
+    races = []
+    BASE_URL = "https://www.racenet.com.au/results/harness"
+    
+    # Handle API response format
+    if isinstance(meetings_data, dict) and "data" in meetings_data:
+        api_data = meetings_data.get("data", {})
+        
+        if "meetingsGrouped" in api_data:
+            # API format
+            for group in api_data["meetingsGrouped"]:
+                for meeting in group.get("meetings", []):
+                    meeting_date = meeting.get("meetingDateLocal", "")
+                    # Extract just the date part if it's an ISO datetime string
+                    meeting_date_only = meeting_date.split("T")[0] if "T" in meeting_date else meeting_date
+                    if meeting_date_only != target_date:
+                        continue
+                    
+                    meeting_slug = meeting.get("slug", "")
+                    meeting_name = meeting.get("name", "").lower().replace(" ", "-").replace("'", "")
+                    
+                    for event in meeting.get("events", []):
+                        # For historical data, we want resulted races
+                        if event.get("isResulted", False):
+                            race_slug = event.get("slug", "")
+                            race_num = event.get("eventNumber", 0)
+                            
+                            if race_slug:
+                                races.append({
+                                    "url": f"{BASE_URL}/{meeting_slug}/{race_slug}",
+                                    "name": meeting_name,
+                                    "num": race_num
+                                })
+        else:
+            # __NUXT__ format fallback
+            data_array = meetings_data.get("data", [])
+            if isinstance(data_array, list) and len(data_array) > 0:
+                for group in data_array[0].get("meetings", []):
+                    for meeting in group.get("meetings", []):
+                        meeting_date = meeting.get("meetingDateLocal", "")
+                        meeting_date_only = meeting_date.split("T")[0] if "T" in meeting_date else meeting_date
+                        if meeting_date_only != target_date:
+                            continue
+                        
+                        meeting_slug = meeting.get("slug", "")
+                        meeting_name = meeting.get("name", "").lower().replace(" ", "-").replace("'", "")
+                        
+                        for event in meeting.get("events", []):
+                            if event.get("isResulted", False):
+                                race_slug = event.get("slug", "")
+                                race_num = event.get("eventNumber", 0)
+                                
+                                if race_slug:
+                                    races.append({
+                                        "url": f"{BASE_URL}/{meeting_slug}/{race_slug}",
+                                        "name": meeting_name,
+                                        "num": race_num
+                                    })
+    
+    return races
+
+
+async def extract_with_retry(url: str, extractor: NuxtDataExtractor, max_retries: int = 3):
+    """Extract data from URL with retry logic."""
+    for attempt in range(max_retries):
+        try:
+            return await extractor.extract(
+                url,
+                use_combined_extraction=True,
+                wait_for_nuxt=True,
+                wait_for_nuxt_timeout=20000
+            )
+        except Exception as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep([5, 10, 20][attempt])
+            else:
+                print(f"  ❌ Failed after {max_retries} attempts: {e}")
+                return None
+
+
 def save_data(data: dict, target_date: str):
     """Save extracted data to JSON file."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    output_file = OUTPUT_DIR / f"racenet-harness-{target_date}.json"
+    output_file = OUTPUT_DIR / f"racenet-harness-meetings-{target_date}.json"
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False, default=str)
     
-    print(f"\n💾 Saved to: {output_file}")
+    print(f"\n💾 Saved meetings to: {output_file}")
 
 
 async def main():
@@ -131,14 +220,65 @@ async def main():
     print("Racenet Historical Data Scraper - Calendar Navigation Example")
     print("=" * 70)
     
-    # Extract data for target date
-    data = await extract_historical_data(TARGET_DATE)
+    # Setup directories
+    races_dir = OUTPUT_DIR / "races"
+    races_dir.mkdir(parents=True, exist_ok=True)
     
-    if data:
-        save_data(data, TARGET_DATE)
-        print("\n✅ Extraction completed successfully!")
-    else:
-        print("\n❌ Extraction failed")
+    # Step 1: Extract meetings data
+    print("\n📅 Step 1: Extracting meetings data...")
+    meetings_data = await extract_historical_data(TARGET_DATE)
+    
+    if not meetings_data:
+        print("\n❌ Failed to extract meetings data")
+        return
+    
+    # Save meetings data
+    save_data(meetings_data, TARGET_DATE)
+    
+    # Step 2: Extract race URLs
+    print(f"\n🏁 Step 2: Extracting race URLs...")
+    races = extract_race_urls(meetings_data, TARGET_DATE)
+    
+    if not races:
+        print("⚠️  No races found for this date")
+        print("\n✅ Meetings data extracted successfully!")
+        return
+    
+    print(f"Found {len(races)} historical races for {TARGET_DATE}")
+    for i, race in enumerate(races[:5], 1):
+        print(f"  {i}. {race['name']} - Race {race['num']}")
+    if len(races) > 5:
+        print(f"  ... and {len(races) - 5} more races")
+    
+    # Step 3: Scrape all race data
+    print(f"\n📊 Step 3: Scraping race data...")
+    async with NuxtDataExtractor(
+        headless=False,
+        timeout=60000,
+        stealth_config=stealth_config
+    ) as extractor:
+        for i, race in enumerate(races, 1):
+            print(f"\n[{i}/{len(races)}] {race['name']} Race {race['num']}")
+            
+            race_data = await extract_with_retry(race['url'], extractor)
+            
+            if race_data:
+                output_file = races_dir / f"racenet-harness-{race['name']}-race-{race['num']}.json"
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(race_data, f, indent=2, ensure_ascii=False, default=str)
+                print(f"  ✅ Saved: {output_file.name}")
+            else:
+                print(f"  ❌ Failed to extract race data")
+            
+            # Delay between races
+            if i < len(races):
+                await asyncio.sleep(2)
+    
+    print("\n" + "=" * 70)
+    print("✅ Extraction completed successfully!")
+    print(f"📁 Meetings saved to: {OUTPUT_DIR}")
+    print(f"📁 Races saved to: {races_dir} ({len(races)} files)")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

@@ -35,12 +35,13 @@ stealth_config = StealthConfig(
 )
 
 
-def extract_with_retry(url: str, max_retries: int = 3):
+def extract_with_retry(url: str, max_retries: int = 3, deserialize: bool = False):
     """Extract data with retry logic.
     
     Args:
         url: URL to extract from
         max_retries: Maximum number of retry attempts
+        deserialize: Whether to deserialize Nuxt 3 data (True for races, False for meetings)
         
     Returns:
         Extracted data or None if all retries fail
@@ -53,7 +54,7 @@ def extract_with_retry(url: str, max_retries: int = 3):
                 url,
                 headless=False,
                 timeout=45000,
-                deserialize_nuxt3=False,  # Keep raw data for today's meetings
+                deserialize_nuxt3=deserialize,
                 stealth_config=stealth_config
             )
         except Exception as e:
@@ -77,12 +78,13 @@ def extract_race_urls(meetings_data: dict) -> list:
     """
     races = []
     
-    # Handle __NUXT__ format (default for today's page)
+    # Handle API response format
     if isinstance(meetings_data, dict) and "data" in meetings_data:
-        data_array = meetings_data.get("data", [])
+        api_data = meetings_data.get("data", {})
         
-        if isinstance(data_array, list) and len(data_array) > 0:
-            for group in data_array[0].get("meetings", []):
+        if "meetingsGrouped" in api_data:
+            # API format
+            for group in api_data["meetingsGrouped"]:
                 for meeting in group.get("meetings", []):
                     meeting_slug = meeting.get("slug", "")
                     meeting_name = meeting.get("name", "").lower().replace(" ", "-").replace("'", "")
@@ -99,6 +101,28 @@ def extract_race_urls(meetings_data: dict) -> list:
                                     "name": meeting_name,
                                     "num": race_num
                                 })
+        else:
+            # __NUXT__ format (default for today's page)
+            data_array = meetings_data.get("data", [])
+            
+            if isinstance(data_array, list) and len(data_array) > 0:
+                for group in data_array[0].get("meetings", []):
+                    for meeting in group.get("meetings", []):
+                        meeting_slug = meeting.get("slug", "")
+                        meeting_name = meeting.get("name", "").lower().replace(" ", "-").replace("'", "")
+                        
+                        for event in meeting.get("events", []):
+                            # Only get unresulted races (upcoming)
+                            if not event.get("isResulted", True):
+                                race_slug = event.get("slug", "")
+                                race_num = event.get("eventNumber", 0)
+                                
+                                if race_slug:
+                                    races.append({
+                                        "url": f"{BASE_URL}/{meeting_slug}/{race_slug}/overview",
+                                        "name": meeting_name,
+                                        "num": race_num
+                                    })
     
     return races
 
@@ -122,8 +146,12 @@ def main():
     print(f"Racenet Today's Races - Simple Extraction Example ({today})")
     print("=" * 70)
     
-    # Extract today's meetings (no navigation needed)
-    print(f"\n📅 Extracting meetings for today...")
+    # Setup directories
+    races_dir = OUTPUT_DIR / "races"
+    races_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Step 1: Extract today's meetings (no navigation needed)
+    print(f"\n📅 Step 1: Extracting meetings for today...")
     meetings_data = extract_with_retry(MEETINGS_URL)
     
     if not meetings_data:
@@ -133,18 +161,47 @@ def main():
     # Save meetings data
     save_data(meetings_data, f"racenet-harness-today-{today}.json")
     
-    # Extract race URLs
+    # Step 2: Extract race URLs
+    print(f"\n🏁 Step 2: Extracting race URLs...")
     races = extract_race_urls(meetings_data)
-    print(f"\n🏁 Found {len(races)} upcoming races for today")
     
-    # Print first few races as examples
+    if not races:
+        print("⚠️  No upcoming races found for today")
+        print("\n✅ Meetings data extracted successfully!")
+        return
+    
+    print(f"Found {len(races)} upcoming races for today")
     for i, race in enumerate(races[:5], 1):
         print(f"  {i}. {race['name']} - Race {race['num']}")
-    
     if len(races) > 5:
         print(f"  ... and {len(races) - 5} more races")
     
-    print("\n✅ Extraction completed successfully!")
+    # Step 3: Scrape all race data
+    print(f"\n📊 Step 3: Scraping race data...")
+    import time
+    
+    for i, race in enumerate(races, 1):
+        print(f"\n[{i}/{len(races)}] {race['name']} Race {race['num']}")
+        
+        race_data = extract_with_retry(race['url'], deserialize=True)
+        
+        if race_data:
+            output_file = races_dir / f"racenet-harness-{race['name']}-race-{race['num']}.json"
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(race_data, f, indent=2, ensure_ascii=False, default=str)
+            print(f"  ✅ Saved: {output_file.name}")
+        else:
+            print(f"  ❌ Failed to extract race data")
+        
+        # Delay between races
+        if i < len(races):
+            time.sleep(2)
+    
+    print("\n" + "=" * 70)
+    print("✅ Extraction completed successfully!")
+    print(f"📁 Meetings saved to: {OUTPUT_DIR}")
+    print(f"📁 Races saved to: {races_dir} ({len(races)} files)")
+    print("=" * 70)
     print(f"\n💡 Tip: For calendar navigation or tab clicks, use extract_with_api_capture()")
     print(f"   See: 01_historical_calendar_navigation.py or 02_tomorrow_tab_navigation.py")
 
