@@ -30,6 +30,7 @@ class StepType(str, Enum):
     SCROLL = "scroll"
     HOVER = "hover"
     SELECT_DATE = "select_date"
+    DISMISS_POPUPS = "dismiss_popups"
 
 
 @dataclass
@@ -184,6 +185,19 @@ class NavigationStep:
             month_year_display_selector=month_year_display_selector,
             date_cell_selector=date_cell_selector,
             view_results_selector=view_results_selector,
+            timeout=timeout,
+            wait_after_selector=wait_after_selector,
+        )
+
+    @classmethod
+    def dismiss_popups(
+        cls,
+        timeout: int = 5000,
+        wait_after_selector: Optional[str] = None,
+    ) -> NavigationStep:
+        """Create a step to dismiss common advertisement popups and modals."""
+        return cls(
+            type=StepType.DISMISS_POPUPS,
             timeout=timeout,
             wait_after_selector=wait_after_selector,
         )
@@ -384,6 +398,37 @@ async def _handle_select_date(
             await human_delay(2000, 3000)
 
 
+async def _handle_dismiss_popups(
+    page: Page, step: NavigationStep, stealth_config: StealthConfig
+) -> None:
+    """
+    Handles dismissing common advertisement popups and modals.
+    """
+    popup_selectors = [
+        'button[aria-label="Close"]', 'button[aria-label="close"]', '.close-button', '.popup-close',
+        '.modal-close', '[data-dismiss="modal"]', '.ad-close', '.advertisement-close',
+        'button:has-text("×")', 'button:has-text("✕")', 'span:has-text("×")', 'span:has-text("✕")',
+        '[class*="close"]:visible', '[id*="close"]:visible', 'button:has-text("Skip")',
+        'button:has-text("Skip Ad")', 'button:has-text("Continue")', 'button:has-text("No Thanks")',
+        '.overlay', '.modal-backdrop',
+    ]
+    
+    dismissed_count = 0
+    for selector in popup_selectors:
+        try:
+            element = page.locator(selector).first
+            if await element.is_visible(timeout=1000):
+                await element.click(timeout=2000)
+                dismissed_count += 1
+                if stealth_config.enabled and stealth_config.random_delays:
+                    await human_delay(500, 1500)
+        except Exception:
+            continue
+    
+    if dismissed_count > 0 and stealth_config.enabled and stealth_config.random_delays:
+        await human_delay(1000, 2000)
+
+
 async def execute_step(page: Page, step: NavigationStep, stealth_config: Optional[StealthConfig] = None) -> None:
     """
     Execute one navigation step on a Playwright page with optional anti-detection.
@@ -406,6 +451,9 @@ async def execute_step(page: Page, step: NavigationStep, stealth_config: Optiona
         if step.type == StepType.SELECT_DATE:
             await _handle_select_date(page, step, config)
             # No need for general wait_for_selector here, _handle_select_date handles it
+        elif step.type == StepType.DISMISS_POPUPS:
+            await _handle_dismiss_popups(page, step, config)
+            # No need for selector wait, dismiss_popups handles its own selectors
         else:
             # For other step types, we still need to wait for the selector to be present
             # before attempting to interact with it, unless the selector is optional.

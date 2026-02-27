@@ -1382,6 +1382,29 @@ The test suite must maintain >95% coverage and all tests must pass.
 
 ## Changelog
 
+### v0.4.1 - Bug Fix Release - Popup Dismissal Enhancement
+
+#### 🚫 **New Popup Dismissal Feature**
+
+- **Added `NavigationStep.dismiss_popups()`**: Automatically handles common advertisement popups, cookie banners, and modal overlays
+- **Comprehensive selector coverage**: Handles 15+ common popup patterns including close buttons, skip ads, and modal overlays
+- **Smart timeout handling**: Configurable timeout with graceful fallback if no popups are found
+- **Integration examples**: Updated test files and examples to demonstrate popup handling in real-world scenarios
+
+#### 🛠️ **Enhanced Scraping Reliability**
+
+- **Improved racenet scrapers**: Added popup dismissal to both historical and upcoming race scrapers
+- **Better error handling**: Graceful handling when no popups are present
+- **Reduced scraping failures**: Prevents popups from interfering with data extraction
+- **Real-world examples**: New `examples/dismiss_popups_example.py` with practical use cases
+
+#### 📊 **Common Popup Patterns Handled**
+
+- Close buttons: `×`, `✕`, `Close`, `[aria-label="Close"]`
+- Skip buttons: `Skip`, `Skip Ad`, `No Thanks`, `Continue`
+- Modal overlays: `.overlay`, `.modal-backdrop`, `[data-dismiss="modal"]`
+- Advertisement close: `.ad-close`, `.advertisement-close`
+
 ### v0.3.0 - Major Release - Complete Deserialization Engine Rewrite
 
 #### 🚀 **Complete Deserialization Engine Rewrite**
